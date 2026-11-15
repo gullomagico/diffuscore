@@ -11,8 +11,11 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  test: {
+    include: ['src/**/*.test.ts'],
+  },
   lint: {
-    ignorePatterns: ['dist/**'],
+    ignorePatterns: ['dist/**', '.agents/**', '.claude/**'],
     plugins: ['react', 'typescript', 'oxc'],
     options: {
       typeAware: true,
@@ -24,7 +27,7 @@ export default defineConfig({
     },
   },
   fmt: {
-    ignorePatterns: ['dist/**'],
+    ignorePatterns: ['dist/**', '.agents/**', '.claude/**'],
     singleQuote: true,
     semi: false,
     sortPackageJson: true,
