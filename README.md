@@ -10,3 +10,4 @@ Designed for performers working with loudspeaker orchestras (acousmonia), DiffuS
 - [Vite+](https://viteplus.dev) (`vp`): dev server, build, lint (Oxlint), format (Oxfmt), test (Vitest)
 - TanStack Router
 - Tailwind CSS v4
+- [shadcn/ui](https://ui.shadcn.com) on Radix UI primitives (`radix-nova` style, dark theme)
