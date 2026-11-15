@@ -75,30 +75,47 @@ test('a confirmed replacement loads the new Source', async ({ page }) => {
   await expect(page.getByText('Mono', { exact: true })).toBeVisible()
 })
 
-test('the loading overlay shows the Decoding stage and Cancel discards the late result', async ({
+test('the loading overlay shows Reading, then Decoding, and Cancel discards the late result', async ({
   page,
 }) => {
-  // decodeAudioData cannot be interrupted, so hold its result until the test releases it.
+  // Hold the file read and the decode until the test releases them, so each stage can be seen.
+  // decodeAudioData cannot be interrupted: Cancel has to discard its late result.
   await page.addInitScript(() => {
+    const gates = window as unknown as { releaseRead: () => void; releaseDecode: () => void }
+    const readGate = new Promise<void>((resolve) => {
+      gates.releaseRead = resolve
+    })
+    const decodeGate = new Promise<void>((resolve) => {
+      gates.releaseDecode = resolve
+    })
+    // oxlint-disable-next-line typescript/unbound-method -- re-bound with call() below
+    const read = Blob.prototype.arrayBuffer
+    Blob.prototype.arrayBuffer = async function () {
+      await readGate
+      return read.call(this)
+    }
     // oxlint-disable-next-line typescript/unbound-method -- re-bound with call() below
     const decode = OfflineAudioContext.prototype.decodeAudioData
-    const gate = new Promise<void>((resolve) => {
-      ;(window as unknown as { releaseDecode: () => void }).releaseDecode = resolve
-    })
     OfflineAudioContext.prototype.decodeAudioData = async function (encoded: ArrayBuffer) {
       const decoded = await decode.call(this, encoded)
-      await gate
+      await decodeGate
       return decoded
     }
   })
+  const release = (gate: 'releaseRead' | 'releaseDecode') =>
+    page.evaluate((name) => (window as unknown as Record<string, () => void>)[name]!(), gate)
+
   await page.goto('/')
   await page.getByLabel('Audio file').setInputFiles(wav('stereo.wav', 2, 1))
 
+  await expect(page.getByRole('status')).toHaveText('Reading')
+  await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible()
+  await release('releaseRead')
   await expect(page.getByRole('status')).toHaveText('Decoding')
+
   await page.getByRole('button', { name: 'Cancel' }).click()
   await expect(page.getByRole('button', { name: 'Import audio file' })).toBeVisible()
-
-  await page.evaluate(() => (window as unknown as { releaseDecode: () => void }).releaseDecode())
+  await release('releaseDecode')
   await expect(page.getByRole('button', { name: 'Import audio file' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'stereo.wav' })).toHaveCount(0)
 })
