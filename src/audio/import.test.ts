@@ -531,3 +531,23 @@ describe('cancel', () => {
     expect(t.importer.getSnapshot()).toEqual({ status: 'idle' })
   })
 })
+
+test('a header that cannot be read skips the Channel check instead of refusing the file', async () => {
+  const bytes = makeWav({ channels: 2, sampleRate: 44100, seconds: 0.01 })
+  const file = new File([bytes as Uint8Array<ArrayBuffer>], 'piece.wav')
+  file.slice = () => {
+    throw new Error('NotReadableError')
+  }
+  const source = createSourceStore()
+  const importer = createImporter({
+    probeDuration: () => Promise.resolve(10),
+    decode: () => Promise.resolve(stereo()),
+    confirmReplace: () => true,
+    source,
+  })
+
+  await importer.importFiles([file])
+
+  expect(importer.getSnapshot()).toEqual({ status: 'idle' })
+  expect(source.getSnapshot()?.fileName).toBe('piece.wav')
+})

@@ -8,7 +8,8 @@ export interface KeyPress {
 
 /** Ctrl+I on Windows/Linux, Cmd+I on macOS, with no other modifier. */
 export function isImportShortcut(event: KeyPress, isMac: boolean): boolean {
-  if (event.key.toLowerCase() !== 'i') return false
+  // Some synthetic keydown events (e.g. browser autofill) carry no key.
+  if (typeof event.key !== 'string' || event.key.toLowerCase() !== 'i') return false
   if (event.altKey || event.shiftKey) return false
   return isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
 }

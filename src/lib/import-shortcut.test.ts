@@ -1,5 +1,6 @@
 import { expect, test } from 'vite-plus/test'
 import { importShortcutLabel, isImportShortcut } from './import-shortcut'
+import type { KeyPress } from './import-shortcut'
 
 const press = (over: Partial<Parameters<typeof isImportShortcut>[0]> = {}) => ({
   key: 'i',
@@ -34,4 +35,9 @@ test('other keys and extra modifiers do not match', () => {
 test('shortcut label follows the platform', () => {
   expect(importShortcutLabel(false)).toBe('Ctrl+I')
   expect(importShortcutLabel(true)).toBe('⌘I')
+})
+
+test('a keydown event without a key does not match', () => {
+  const autofill = { ctrlKey: true, metaKey: false, altKey: false, shiftKey: false }
+  expect(isImportShortcut(autofill as KeyPress, false)).toBe(false)
 })

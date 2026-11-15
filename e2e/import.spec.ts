@@ -33,7 +33,7 @@ test('the menu entry and the keyboard shortcut both open the file picker', async
   await fromMenu
 
   const fromShortcut = page.waitForEvent('filechooser')
-  await page.keyboard.press('Control+i')
+  await page.keyboard.press('ControlOrMeta+i')
   await fromShortcut
 })
 
@@ -73,4 +73,32 @@ test('a confirmed replacement loads the new Source', async ({ page }) => {
   await page.getByLabel('Audio file').setInputFiles(wav('second.wav', 1, 1))
   await expect(page.getByRole('heading', { name: 'second.wav' })).toBeVisible()
   await expect(page.getByText('Mono', { exact: true })).toBeVisible()
+})
+
+test('the loading overlay shows the Decoding stage and Cancel discards the late result', async ({
+  page,
+}) => {
+  // decodeAudioData cannot be interrupted, so hold its result until the test releases it.
+  await page.addInitScript(() => {
+    // oxlint-disable-next-line typescript/unbound-method -- re-bound with call() below
+    const decode = OfflineAudioContext.prototype.decodeAudioData
+    const gate = new Promise<void>((resolve) => {
+      ;(window as unknown as { releaseDecode: () => void }).releaseDecode = resolve
+    })
+    OfflineAudioContext.prototype.decodeAudioData = async function (encoded: ArrayBuffer) {
+      const decoded = await decode.call(this, encoded)
+      await gate
+      return decoded
+    }
+  })
+  await page.goto('/')
+  await page.getByLabel('Audio file').setInputFiles(wav('stereo.wav', 2, 1))
+
+  await expect(page.getByRole('status')).toHaveText('Decoding')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await expect(page.getByRole('button', { name: 'Import audio file' })).toBeVisible()
+
+  await page.evaluate(() => (window as unknown as { releaseDecode: () => void }).releaseDecode())
+  await expect(page.getByRole('button', { name: 'Import audio file' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'stereo.wav' })).toHaveCount(0)
 })

@@ -1,4 +1,5 @@
 import { readHeaderChannelCount } from '@/audio/headers'
+import type { HeaderChannelCount } from '@/audio/headers'
 import { SOURCE_SAMPLE_RATE } from '@/audio/source'
 import type { DecodedAudio, SourceStore } from '@/audio/source'
 
@@ -83,7 +84,10 @@ export function createImporter(deps: ImportDeps): Importer {
   async function run(file: File, isCurrent: () => boolean): Promise<ImportError | null> {
     // 1. Size, before reading any bytes.
     if (file.size > MAX_FILE_BYTES) {
-      return failure('file-too-large', 'This file is larger than 1 GB, which is the maximum.')
+      return failure(
+        'file-too-large',
+        `This file is larger than ${MAX_FILE_BYTES / 1024 ** 3} GB, which is the maximum.`,
+      )
     }
 
     // 2. Duration from the <audio> element.
@@ -102,14 +106,17 @@ export function createImporter(deps: ImportDeps): Importer {
     }
     if (probed > MAX_DURATION_SECONDS) return tooLong()
 
-    // 3. Channel count from the header. Unknown never refuses the file.
+    // 3. Channel count from the header. An unreadable or unknown header never refuses the file.
+    let headerChannels: HeaderChannelCount = 'unknown'
     try {
       const prefix = await file.slice(0, HEADER_PREFIX_BYTES).arrayBuffer()
-      if (!isCurrent()) return null
-      const channels = readHeaderChannelCount(new Uint8Array(prefix))
-      if (channels !== 'unknown' && channels > MAX_CHANNELS) return tooManyChannels(channels)
+      headerChannels = readHeaderChannelCount(new Uint8Array(prefix))
     } catch {
-      return failure('decode-failed', 'This file could not be read.')
+      // Fall through to the post-decode check.
+    }
+    if (!isCurrent()) return null
+    if (headerChannels !== 'unknown' && headerChannels > MAX_CHANNELS) {
+      return tooManyChannels(headerChannels)
     }
 
     // 4. Replace confirmation, then release the old Source before decoding.
