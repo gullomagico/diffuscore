@@ -5,6 +5,10 @@
  * module exports. Wire behaviour through `onSelect` as features land.
  */
 
+import { importShortcutLabel } from '@/lib/import-shortcut'
+import { requestImport } from '@/lib/import-request'
+import { isMac } from '@/lib/platform'
+
 export type MenuEntry =
   | {
       type: 'item'
@@ -27,7 +31,14 @@ export const appMenus: MenuDefinition[] = [
   {
     id: 'file',
     label: 'File',
-    items: [{ type: 'item', label: 'Import Audio…', shortcut: 'Ctrl+I' }],
+    items: [
+      {
+        type: 'item',
+        label: 'Import Audio…',
+        shortcut: importShortcutLabel(isMac),
+        onSelect: requestImport,
+      },
+    ],
   },
   {
     id: 'help',
