@@ -1,8 +1,14 @@
 import { expect, test } from '@playwright/test'
+import type { Locator } from '@playwright/test'
 import { makeWav } from '../src/audio/testing/fixtures.ts'
 
-function wav(name: string, channels: number, seconds: number) {
-  const bytes = makeWav({ channels, sampleRate: 44100, seconds })
+function wav(
+  name: string,
+  channels: number,
+  seconds: number,
+  options: { sampleRate?: number; amplitude?: number; ramp?: boolean } = {},
+) {
+  const bytes = makeWav({ channels, sampleRate: 44100, seconds, ...options })
   return { name, mimeType: 'audio/wav', buffer: Buffer.from(bytes) }
 }
 
@@ -15,6 +21,8 @@ test('imports a stereo WAV, then refuses a 3-channel one', async ({ page }) => {
   await expect(page.getByText('00:02')).toBeVisible()
   await expect(page.getByText('Stereo', { exact: true })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Timeline' })).toBeVisible()
+  await expect(page.getByRole('img', { name: 'Time ruler' })).toBeVisible()
+  await expect(page.getByRole('img', { name: 'Mirrored waveform: R above, L below' })).toBeVisible()
 
   // Reload so the error shows in the empty state, not as a banner over a loaded Source.
   await page.reload()
@@ -118,4 +126,136 @@ test('the loading overlay shows Reading, then Decoding, and Cancel discards the 
   await release('releaseDecode')
   await expect(page.getByRole('button', { name: 'Import audio file' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'stereo.wav' })).toHaveCount(0)
+})
+
+/** Device pixels with some ink, in rows more than 3 pixels from the middle and right of the Channel labels. */
+function inkAwayFromZeroLine(canvas: Locator) {
+  return canvas.evaluate((element) => {
+    const { width, height } = element as HTMLCanvasElement
+    const data = (element as HTMLCanvasElement)
+      .getContext('2d')!
+      .getImageData(0, 0, width, height).data
+    const mid = Math.floor(height / 2)
+    let above = 0
+    let below = 0
+    for (let y = 0; y < height; y++) {
+      for (let x = 100; x < width; x++) {
+        if (data[(y * width + x) * 4 + 3] === 0) continue
+        if (y < mid - 3) above++
+        else if (y > mid + 3) below++
+      }
+    }
+    return { above, below }
+  })
+}
+
+function canvasHash(canvas: Locator) {
+  return canvas.evaluate((element) => {
+    const { width, height } = element as HTMLCanvasElement
+    const data = (element as HTMLCanvasElement)
+      .getContext('2d')!
+      .getImageData(0, 0, width, height).data
+    let hash = 0
+    for (let i = 3; i < data.length; i += 4) hash = (hash * 31 + data[i]!) | 0
+    return hash
+  })
+}
+
+test('the Timeline draws a ruler and a Mirrored waveform that are not blank', async ({ page }) => {
+  await page.goto('/')
+  await page.getByLabel('Audio file').setInputFiles(wav('loud.wav', 2, 2, { amplitude: 20000 }))
+  const waveform = page.getByRole('img', { name: 'Mirrored waveform: R above, L below' })
+  await expect(waveform).toBeVisible()
+  await expect
+    .poll(async () => {
+      const { above, below } = await inkAwayFromZeroLine(waveform)
+      return above > 0 && below > 0
+    })
+    .toBe(true)
+
+  const ruler = page.getByRole('img', { name: 'Time ruler' })
+  await expect
+    .poll(() =>
+      ruler.evaluate((element) => {
+        const { width, height } = element as HTMLCanvasElement
+        const data = (element as HTMLCanvasElement)
+          .getContext('2d')!
+          .getImageData(0, 0, width, height).data
+        // Above the baseline row, so the ruler's bottom border alone does not count.
+        const ticksAndLabels = data.subarray(0, (height - 1) * width * 4)
+        return ticksAndLabels.some((value, i) => i % 4 === 3 && value !== 0)
+      }),
+    )
+    .toBe(true)
+})
+
+test('a mono Source gets a Mono Mirrored waveform', async ({ page }) => {
+  await page.goto('/')
+  await page.getByLabel('Audio file').setInputFiles(wav('mono.wav', 1, 1))
+  await expect(page.getByRole('img', { name: 'Mirrored waveform: Mono' })).toBeVisible()
+  await expect(page.getByRole('img', { name: 'Time ruler' })).toBeVisible()
+})
+
+test('the Analyzing stage shows progress, and Cancel returns to the empty state', async ({
+  page,
+}) => {
+  // Hold every message of the analysis worker until the test releases them.
+  await page.addInitScript(() => {
+    const gate = window as unknown as { releaseWorker: () => void }
+    const released = new Promise<void>((resolve) => {
+      gate.releaseWorker = resolve
+    })
+    const NativeWorker = window.Worker
+    window.Worker = class extends NativeWorker {
+      addEventListener(type: string, listener: EventListenerOrEventListenerObject, ...rest: []) {
+        if (type !== 'message') {
+          super.addEventListener(type, listener, ...rest)
+          return
+        }
+        super.addEventListener(
+          type,
+          (event) => {
+            void released.then(() => {
+              if (typeof listener === 'function') listener(event)
+              else listener.handleEvent(event)
+            })
+          },
+          ...rest,
+        )
+      }
+    }
+  })
+
+  await page.goto('/')
+  await page.getByLabel('Audio file').setInputFiles(wav('stereo.wav', 2, 1))
+  await expect(page.getByRole('status')).toHaveText('Analyzing')
+  await expect(page.getByRole('progressbar', { name: 'Analysis progress' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await expect(page.getByRole('button', { name: 'Import audio file' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'stereo.wav' })).toHaveCount(0)
+
+  // Release, so the next import is not held, then import again.
+  await page.evaluate(() => (window as unknown as { releaseWorker: () => void }).releaseWorker())
+  await page.getByLabel('Audio file').setInputFiles(wav('again.wav', 2, 1))
+  await expect(page.getByRole('heading', { name: 'again.wav' })).toBeVisible()
+  await expect(page.getByRole('img', { name: 'Mirrored waveform: R above, L below' })).toBeVisible()
+})
+
+test('zooming with the keyboard redraws the Mirrored waveform', async ({ page }) => {
+  await page.goto('/')
+  await page
+    .getByLabel('Audio file')
+    .setInputFiles(wav('long.wav', 1, 12, { sampleRate: 8000, amplitude: 20000, ramp: true }))
+  const waveform = page.getByRole('img', { name: 'Mirrored waveform: Mono' })
+  await expect(waveform).toBeVisible()
+  await expect.poll(async () => (await inkAwayFromZeroLine(waveform)).above).toBeGreaterThan(0)
+  const before = await canvasHash(waveform)
+
+  await page.getByRole('region', { name: 'Timeline' }).locator('[tabindex="0"]').focus()
+  await page.keyboard.press('+')
+  await expect.poll(() => canvasHash(waveform)).not.toBe(before)
+
+  await page.keyboard.press('-')
+  await expect.poll(() => canvasHash(waveform)).toBe(before)
 })

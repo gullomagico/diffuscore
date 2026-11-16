@@ -1,15 +1,20 @@
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import type { SourceAnalysis } from '@/audio/analysis'
 import type { Source } from '@/audio/source'
+import { Timeline } from '@/components/timeline/timeline'
 import { channelLabel, formatDuration } from '@/lib/format'
 
 export function LoadedView({
   source,
+  analysis,
   errorMessage,
   onChoose,
   onDismissError,
 }: {
   source: Source
+  /** The Timeline is drawn once the analysis of this Source is ready. */
+  analysis: SourceAnalysis | null
   errorMessage?: string
   onChoose: () => void
   onDismissError: () => void
@@ -43,7 +48,9 @@ export function LoadedView({
           </div>
         </dl>
       </header>
-      <section aria-label="Timeline" className="min-h-0 flex-1" />
+      <section aria-label="Timeline" className="min-h-0 flex-1">
+        {analysis !== null && analysis.source === source && <Timeline analysis={analysis} />}
+      </section>
     </div>
   )
 }

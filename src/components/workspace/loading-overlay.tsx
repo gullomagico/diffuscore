@@ -4,6 +4,7 @@ import type { ImportStage } from '@/audio/import'
 const STAGE_LABEL: Record<ImportStage, string> = {
   reading: 'Reading',
   decoding: 'Decoding',
+  analyzing: 'Analyzing',
 }
 
 /** Animation delays, so the bars rise and fall out of step like a level meter. */
@@ -40,13 +41,35 @@ function Ellipsis() {
   )
 }
 
+function ProgressBar({ progress }: { progress: number }) {
+  const percent = Math.round(progress * 100)
+  return (
+    <div
+      role="progressbar"
+      aria-label="Analysis progress"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percent}
+      className="h-1.5 w-64 overflow-hidden rounded-full bg-muted"
+    >
+      <div
+        className="h-full rounded-full bg-primary transition-[width] duration-150 motion-reduce:transition-none"
+        style={{ width: `${percent}%` }}
+      />
+    </div>
+  )
+}
+
 export function LoadingOverlay({
   stage,
   fileName,
+  progress,
   onCancel,
 }: {
   stage: ImportStage
   fileName: string
+  /** 0..1 for a determinate progress bar, null when the duration is unknown. */
+  progress: number | null
   onCancel: () => void
 }) {
   return (
@@ -60,6 +83,7 @@ export function LoadingOverlay({
           <Ellipsis />
         </p>
         <p className="max-w-md truncate text-sm text-muted-foreground">{fileName}</p>
+        {progress !== null && <ProgressBar progress={progress} />}
       </div>
       <Button variant="outline" onClick={onCancel}>
         Cancel

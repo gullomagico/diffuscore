@@ -1,6 +1,7 @@
 import { useState, useSyncExternalStore } from 'react'
 import type { DragEvent } from 'react'
 import { importer } from '@/audio/browser'
+import { analysisStore } from '@/audio/analysis'
 import { workspaceGate } from '@/audio/isolation'
 import { sourceStore } from '@/audio/source'
 import { EmptyState } from '@/components/workspace/empty-state'
@@ -15,6 +16,8 @@ const subscribeImporter = (listener: () => void) => importer.subscribe(listener)
 const getImportState = () => importer.getSnapshot()
 const subscribeSource = (listener: () => void) => sourceStore.subscribe(listener)
 const getSource = () => sourceStore.getSnapshot()
+const subscribeAnalysis = (listener: () => void) => analysisStore.subscribe(listener)
+const getAnalysis = () => analysisStore.getSnapshot()
 
 function hasFiles(event: DragEvent): boolean {
   return Array.from(event.dataTransfer.types).includes('Files')
@@ -29,6 +32,7 @@ export function WorkspacePage() {
 function Workspace() {
   const importState = useSyncExternalStore(subscribeImporter, getImportState)
   const source = useSyncExternalStore(subscribeSource, getSource)
+  const analysis = useSyncExternalStore(subscribeAnalysis, getAnalysis)
   const { inputRef, openPicker, onInputChange } = useImportPicker()
   const [dragDepth, setDragDepth] = useState(0)
 
@@ -71,6 +75,7 @@ function Workspace() {
       {source ? (
         <LoadedView
           source={source}
+          analysis={analysis}
           errorMessage={errorMessage}
           onChoose={openPicker}
           onDismissError={() => importer.dismissError()}
@@ -82,6 +87,7 @@ function Workspace() {
         <LoadingOverlay
           stage={importState.stage}
           fileName={importState.fileName}
+          progress={importState.progress}
           onCancel={() => importer.cancel()}
         />
       )}

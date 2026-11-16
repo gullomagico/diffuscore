@@ -1,7 +1,8 @@
 import { readHeaderChannelCount } from '@/audio/headers'
 import type { HeaderChannelCount } from '@/audio/headers'
+import type { Analyze, AnalysisStore } from '@/audio/analysis'
 import { SOURCE_SAMPLE_RATE } from '@/audio/source'
-import type { DecodedAudio, SourceStore } from '@/audio/source'
+import type { DecodedAudio, Source, SourceStore } from '@/audio/source'
 
 export const MAX_FILE_BYTES = 1024 ** 3 // 1 GB, provisional
 export const MAX_DURATION_SECONDS = 30 * 60 // 30 min, provisional
@@ -16,6 +17,7 @@ export type ImportErrorKind =
   | 'file-too-large'
   | 'too-long'
   | 'decode-failed'
+  | 'analysis-failed'
   | 'multiple-files'
 
 export interface ImportError {
@@ -23,11 +25,17 @@ export interface ImportError {
   readonly message: string
 }
 
-export type ImportStage = 'reading' | 'decoding'
+export type ImportStage = 'reading' | 'decoding' | 'analyzing'
 
 export type ImportState =
   | { readonly status: 'idle' }
-  | { readonly status: 'loading'; readonly stage: ImportStage; readonly fileName: string }
+  | {
+      readonly status: 'loading'
+      readonly stage: ImportStage
+      readonly fileName: string
+      /** 0..1 during Analyzing, null (indeterminate) during Reading and Decoding. */
+      readonly progress: number | null
+    }
   | { readonly status: 'error'; readonly error: ImportError }
 
 export interface ImportDeps {
@@ -38,6 +46,10 @@ export interface ImportDeps {
   /** Asks the user to confirm discarding the current Source. */
   confirmReplace(): boolean | Promise<boolean>
   source: SourceStore
+  /** Builds the peak data of the loaded Source. */
+  analyze: Analyze
+  /** Receives the analysis once it is complete. */
+  analysis: AnalysisStore
 }
 
 export interface Importer {
@@ -72,6 +84,8 @@ export function createImporter(deps: ImportDeps): Importer {
   let state: ImportState = IDLE
   /** Bumped by every new import and by cancel(), so results of a stale import are discarded. */
   let generation = 0
+  /** The Source this import loaded and is analyzing, so cancel() releases only what it owns. */
+  let analyzing: { source: Source; controller: AbortController } | null = null
   const listeners = new Set<() => void>()
 
   function setState(next: ImportState): void {
@@ -136,7 +150,7 @@ export function createImporter(deps: ImportDeps): Importer {
     try {
       let encoded: ArrayBuffer | null = await file.arrayBuffer()
       if (!isCurrent()) return null
-      setState({ status: 'loading', stage: 'decoding', fileName: file.name })
+      setState({ status: 'loading', stage: 'decoding', fileName: file.name, progress: null })
       const pending = deps.decode(encoded, SOURCE_SAMPLE_RATE)
       encoded = null
       decoded = await pending
@@ -150,7 +164,31 @@ export function createImporter(deps: ImportDeps): Importer {
     if (decoded.duration > MAX_DURATION_SECONDS) return tooLong()
 
     // 7. Hand over to the Source store.
-    deps.source.load(file.name, decoded)
+    const source = deps.source.load(file.name, decoded)
+
+    // 8. Analyze. The Source is already in the store; it is released again if the analysis fails.
+    const controller = new AbortController()
+    const mine = { source, controller }
+    analyzing = mine
+    setState({ status: 'loading', stage: 'analyzing', fileName: file.name, progress: 0 })
+    const onProgress = (fraction: number) => {
+      if (!isCurrent() || state.status !== 'loading' || state.stage !== 'analyzing') return
+      const progress = Math.max(state.progress ?? 0, Math.min(1, Math.max(0, fraction)))
+      if (progress === state.progress) return
+      setState({ ...state, progress })
+    }
+    try {
+      const peaks = await deps.analyze(source, { onProgress, signal: controller.signal })
+      if (!isCurrent()) return null
+      // Published before the overlay goes away, so there is never a moment with neither.
+      deps.analysis.publish(source, peaks)
+    } catch {
+      if (!isCurrent()) return null
+      if (deps.source.getSnapshot() === source) deps.source.release()
+      return failure('analysis-failed', 'This Source could not be analyzed.')
+    } finally {
+      if (analyzing === mine) analyzing = null
+    }
     return null
   }
 
@@ -175,7 +213,7 @@ export function createImporter(deps: ImportDeps): Importer {
       const file = files[0]!
       const token = ++generation
       const isCurrent = () => token === generation
-      setState({ status: 'loading', stage: 'reading', fileName: file.name })
+      setState({ status: 'loading', stage: 'reading', fileName: file.name, progress: null })
       let error: ImportError | null
       try {
         error = await run(file, isCurrent)
@@ -188,6 +226,12 @@ export function createImporter(deps: ImportDeps): Importer {
     cancel() {
       if (state.status !== 'loading') return
       generation++
+      if (analyzing) {
+        const { source, controller } = analyzing
+        analyzing = null
+        controller.abort()
+        if (deps.source.getSnapshot() === source) deps.source.release()
+      }
       setState(IDLE)
     },
     dismissError() {

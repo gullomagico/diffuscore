@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'vite-plus/test'
 import { makeFlacHeader, makeWav } from '@/audio/testing/fixtures'
+import { createAnalysisStore } from './analysis'
+import type { Analyze, AnalyzeOptions } from './analysis'
 import { createImporter, MAX_FILE_BYTES } from './import'
 import type { ImportDeps, ImportState } from './import'
 import { createSourceStore } from './source'
-import type { DecodedAudio } from './source'
+import type { DecodedAudio, Source, SourceStore } from './source'
+import type { SourcePeaks } from '@/timeline/peaks'
 
 interface Deferred<T> {
   promise: Promise<T>
@@ -62,7 +65,25 @@ function fakeFile(size: number, calls: string[]): File {
   } as unknown as File
 }
 
-function setup(options: { duration?: number; decoded?: DecodedAudio; confirm?: boolean } = {}) {
+const noPeaks: SourcePeaks = { pyramids: [] }
+
+/** The analysis deps for importers built by hand: analysis resolves immediately. */
+function analysisDeps(source: SourceStore) {
+  return {
+    analyze: (() => Promise.resolve(noPeaks)) as Analyze,
+    analysis: createAnalysisStore(source),
+  }
+}
+
+function setup(
+  options: {
+    duration?: number
+    decoded?: DecodedAudio
+    confirm?: boolean
+    /** Analysis stays pending until the test settles it through `t.analyze`. */
+    manualAnalysis?: boolean
+  } = {},
+) {
   const calls: string[] = []
   const source = createSourceStore()
   const realRelease = source.release.bind(source)
@@ -77,7 +98,20 @@ function setup(options: { duration?: number; decoded?: DecodedAudio; confirm?: b
   }
   const probe = deferred<number>()
   const decodes: Deferred<DecodedAudio>[] = []
+  const analyses: {
+    source: Source
+    options: AnalyzeOptions
+    result: Deferred<SourcePeaks>
+  }[] = []
+  const analysis = createAnalysisStore(source)
   const deps: ImportDeps = {
+    analyze: (src, analyzeOptions) => {
+      if (!options.manualAnalysis) return Promise.resolve(noPeaks)
+      const result = deferred<SourcePeaks>()
+      analyses.push({ source: src, options: analyzeOptions, result })
+      return result.promise
+    },
+    analysis,
     probeDuration: () => {
       calls.push('probe')
       if (options.duration !== undefined) return Promise.resolve(options.duration)
@@ -101,7 +135,12 @@ function setup(options: { duration?: number; decoded?: DecodedAudio; confirm?: b
     resolve: (value: DecodedAudio) => decodes.at(-1)!.resolve(value),
     reject: (reason?: unknown) => decodes.at(-1)!.reject(reason),
   }
-  return { calls, source, importer, probe, decode }
+  const analyze = {
+    last: () => analyses.at(-1)!,
+    resolve: (peaks: SourcePeaks) => analyses.at(-1)!.result.resolve(peaks),
+    reject: (reason?: unknown) => analyses.at(-1)!.result.reject(reason),
+  }
+  return { calls, source, analysis, importer, probe, decode, analyze }
 }
 
 function errorOf(state: ImportState) {
@@ -307,15 +346,16 @@ describe('import success', () => {
     expect(t.source.getSnapshot()?.channels).toHaveLength(1)
   })
 
-  test('the stage goes reading then decoding, then idle', async () => {
+  test('the stage goes reading, decoding, analyzing, then idle', async () => {
     const t = setup({ duration: 10, decoded: stereo() })
     const seen: ImportState[] = []
     t.importer.subscribe(() => seen.push(t.importer.getSnapshot()))
     await t.importer.importFiles([wavFile(2, 'a.wav')])
 
     expect(seen).toEqual([
-      { status: 'loading', stage: 'reading', fileName: 'a.wav' },
-      { status: 'loading', stage: 'decoding', fileName: 'a.wav' },
+      { status: 'loading', stage: 'reading', fileName: 'a.wav', progress: null },
+      { status: 'loading', stage: 'decoding', fileName: 'a.wav', progress: null },
+      { status: 'loading', stage: 'analyzing', fileName: 'a.wav', progress: 0 },
       { status: 'idle' },
     ])
   })
@@ -336,6 +376,7 @@ describe('import success', () => {
       status: 'loading',
       stage: 'reading',
       fileName: 'first.wav',
+      progress: null,
     })
     expect(t.calls).toEqual(['probe'])
     t.importer.cancel()
@@ -442,6 +483,7 @@ describe('replacing a loaded Source', () => {
         return answer.promise
       },
       source: t.source,
+      ...analysisDeps(t.source),
     })
     const done = importer.importFiles([wavFile()])
     await tick()
@@ -507,6 +549,7 @@ describe('cancel', () => {
       },
       confirmReplace: () => true,
       source,
+      ...analysisDeps(source),
     })
     const stale = importer.importFiles([wavFile(2, 'stale.wav')])
     await tick()
@@ -532,6 +575,187 @@ describe('cancel', () => {
   })
 })
 
+describe('analyzing', () => {
+  const tick = () => new Promise((r) => setTimeout(r))
+  const peaksOf = (length: number): SourcePeaks => ({
+    pyramids: [{ sampleRate: 8000, length, levels: [] }],
+  })
+
+  /** Runs an import up to the point where analysis is pending. */
+  async function analyzing(fileName = 'a.wav') {
+    const t = setup({ duration: 10, manualAnalysis: true })
+    const done = t.importer.importFiles([wavFile(2, fileName)])
+    await tick()
+    t.decode.resolve(stereo())
+    await tick()
+    return { t, done }
+  }
+
+  test('hands the loaded Source to analyze', async () => {
+    const { t, done } = await analyzing()
+    expect(t.importer.getSnapshot()).toMatchObject({ status: 'loading', stage: 'analyzing' })
+    expect(t.analyze.last().source).toBe(t.source.getSnapshot())
+    t.analyze.resolve(peaksOf(1))
+    await done
+  })
+
+  test('reports progress in the state, null in the earlier stages', async () => {
+    const t = setup({ duration: 10, manualAnalysis: true })
+    const seen: (number | null)[] = []
+    t.importer.subscribe(() => {
+      const state = t.importer.getSnapshot()
+      if (state.status === 'loading') seen.push(state.progress)
+    })
+    const done = t.importer.importFiles([wavFile()])
+    await tick()
+    t.decode.resolve(stereo())
+    await tick()
+    t.analyze.last().options.onProgress(0.25)
+    t.analyze.last().options.onProgress(0.5)
+    expect(seen).toEqual([null, null, 0, 0.25, 0.5])
+    t.analyze.resolve(peaksOf(1))
+    await done
+  })
+
+  test('progress is clamped to 0..1 and never goes backwards', async () => {
+    const { t, done } = await analyzing()
+    const progress = () => (t.importer.getSnapshot() as { progress: number | null }).progress
+    t.analyze.last().options.onProgress(0.5)
+    t.analyze.last().options.onProgress(0.3)
+    expect(progress()).toBe(0.5)
+    t.analyze.last().options.onProgress(7)
+    expect(progress()).toBe(1)
+    t.analyze.last().options.onProgress(-2)
+    expect(progress()).toBe(1)
+    t.analyze.resolve(peaksOf(1))
+    await done
+  })
+
+  test('a new state object is published for each progress change only', async () => {
+    const { t, done } = await analyzing()
+    let calls = 0
+    t.importer.subscribe(() => calls++)
+    t.analyze.last().options.onProgress(0.5)
+    t.analyze.last().options.onProgress(0.4)
+    expect(calls).toBe(1)
+    t.analyze.resolve(peaksOf(1))
+    await done
+  })
+
+  test('publishes the analysis of the Source and goes idle', async () => {
+    const { t, done } = await analyzing()
+    const p = peaksOf(3)
+    t.analyze.resolve(p)
+    await done
+
+    expect(t.importer.getSnapshot()).toEqual({ status: 'idle' })
+    expect(t.analysis.getSnapshot()?.source).toBe(t.source.getSnapshot())
+    expect(t.analysis.getSnapshot()?.peaks).toBe(p)
+  })
+
+  test('the analysis is already published when the state becomes idle', async () => {
+    const { t, done } = await analyzing()
+    let atIdle: unknown = 'never idle'
+    t.importer.subscribe(() => {
+      if (t.importer.getSnapshot().status === 'idle') atIdle = t.analysis.getSnapshot()
+    })
+    t.analyze.resolve(peaksOf(3))
+    await done
+    expect(atIdle).not.toBeNull()
+    expect(atIdle).not.toBe('never idle')
+  })
+
+  test('cancel aborts the analysis, leaves no Source and no analysis, and goes idle', async () => {
+    const { t, done } = await analyzing()
+    expect(t.analyze.last().options.signal.aborted).toBe(false)
+    t.importer.cancel()
+
+    expect(t.analyze.last().options.signal.aborted).toBe(true)
+    expect(t.importer.getSnapshot()).toEqual({ status: 'idle' })
+    expect(t.source.getSnapshot()).toBeNull()
+
+    t.analyze.reject(new DOMException('Aborted', 'AbortError'))
+    await done
+    expect(t.importer.getSnapshot()).toEqual({ status: 'idle' })
+    expect(t.analysis.getSnapshot()).toBeNull()
+  })
+
+  test('a late result after cancel publishes nothing', async () => {
+    const { t, done } = await analyzing()
+    t.importer.cancel()
+    t.analyze.resolve(peaksOf(3))
+    await done
+    expect(t.importer.getSnapshot()).toEqual({ status: 'idle' })
+    expect(t.analysis.getSnapshot()).toBeNull()
+  })
+
+  test('progress after cancel is ignored', async () => {
+    const { t, done } = await analyzing()
+    t.importer.cancel()
+    t.analyze.last().options.onProgress(0.9)
+    expect(t.importer.getSnapshot()).toEqual({ status: 'idle' })
+    t.analyze.resolve(peaksOf(3))
+    await done
+  })
+
+  test('a failed analysis reports an error and leaves no Source', async () => {
+    const { t, done } = await analyzing()
+    t.analyze.reject(new Error('worker crashed'))
+    await done
+
+    expect(errorOf(t.importer.getSnapshot())).toEqual({
+      kind: 'analysis-failed',
+      message: 'This Source could not be analyzed.',
+    })
+    expect(t.source.getSnapshot()).toBeNull()
+    expect(t.analysis.getSnapshot()).toBeNull()
+  })
+
+  test('a Source released by someone else during analysis does not crash and is not published', async () => {
+    const { t, done } = await analyzing()
+    t.source.release()
+    t.analyze.resolve(peaksOf(3))
+    await done
+    expect(t.analysis.getSnapshot()).toBeNull()
+    expect(t.importer.getSnapshot()).toEqual({ status: 'idle' })
+  })
+
+  test('cancelling while reading a replacement keeps the old Source and its analysis', async () => {
+    const t = setup({ duration: 10 })
+    const first = t.importer.importFiles([wavFile(2, 'old.wav')])
+    await tick()
+    t.decode.resolve(stereo())
+    await first
+    const old = t.source.getSnapshot()
+    const oldAnalysis = t.analysis.getSnapshot()
+    expect(oldAnalysis?.source).toBe(old)
+
+    const second = t.importer.importFiles([wavFile(2, 'new.wav')])
+    t.importer.cancel()
+    await second
+
+    expect(t.source.getSnapshot()).toBe(old)
+    expect(t.analysis.getSnapshot()).toBe(oldAnalysis)
+  })
+
+  test('a replacement import releases the previous analysis with the previous Source', async () => {
+    const t = setup({ duration: 10 })
+    const first = t.importer.importFiles([wavFile(2, 'old.wav')])
+    await tick()
+    t.decode.resolve(stereo())
+    await first
+    expect(t.analysis.getSnapshot()).not.toBeNull()
+
+    const second = t.importer.importFiles([wavFile(2, 'new.wav')])
+    await tick()
+    expect(t.source.getSnapshot()).toBeNull()
+    expect(t.analysis.getSnapshot()).toBeNull()
+    t.importer.cancel()
+    t.decode.resolve(stereo())
+    await second
+  })
+})
+
 test('a header that cannot be read skips the Channel check instead of refusing the file', async () => {
   const bytes = makeWav({ channels: 2, sampleRate: 44100, seconds: 0.01 })
   const file = new File([bytes as Uint8Array<ArrayBuffer>], 'piece.wav')
@@ -544,6 +768,7 @@ test('a header that cannot be read skips the Channel check instead of refusing t
     decode: () => Promise.resolve(stereo()),
     confirmReplace: () => true,
     source,
+    ...analysisDeps(source),
   })
 
   await importer.importFiles([file])

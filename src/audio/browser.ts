@@ -1,6 +1,8 @@
 import { createImporter } from '@/audio/import'
 import type { ImportDeps } from '@/audio/import'
+import { analysisStore } from '@/audio/analysis'
 import { sourceStore } from '@/audio/source'
+import { analyzeInWorker } from '@/timeline/analyze'
 
 function probeDuration(file: File): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -33,6 +35,13 @@ function confirmReplace(): boolean {
   return window.confirm('Importing this file will discard the current Source. Continue?')
 }
 
-const deps: ImportDeps = { probeDuration, decode, confirmReplace, source: sourceStore }
+const deps: ImportDeps = {
+  probeDuration,
+  decode,
+  confirmReplace,
+  source: sourceStore,
+  analyze: analyzeInWorker,
+  analysis: analysisStore,
+}
 
 export const importer = createImporter(deps)

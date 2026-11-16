@@ -9,6 +9,10 @@ export interface WavOptions {
   readonly channels: number
   readonly sampleRate: number
   readonly seconds: number
+  /** Peak of the 440 Hz sine, in PCM16 units (full scale is 32767). Default 3000. */
+  readonly amplitude?: number
+  /** The sine's level rises linearly from silence to `amplitude` over the whole file, so zooming changes the picture. */
+  readonly ramp?: boolean
   /** Write a WAVE_FORMAT_EXTENSIBLE fmt chunk instead of a plain PCM one. */
   readonly extensible?: boolean
   /** Chunks (e.g. bext, JUNK) written before the fmt chunk, filled with zeros. Odd sizes are padded. */
@@ -25,7 +29,15 @@ const PCM_SUBFORMAT_GUID = [
 
 /** A valid, playable PCM16 WAV: a quiet 440 Hz sine on every Channel. */
 export function makeWav(options: WavOptions): Uint8Array {
-  const { channels, sampleRate, seconds, extensible = false, chunksBeforeFmt = [] } = options
+  const {
+    channels,
+    sampleRate,
+    seconds,
+    amplitude = 3000,
+    ramp = false,
+    extensible = false,
+    chunksBeforeFmt = [],
+  } = options
   const frames = Math.round(sampleRate * seconds)
   const dataSize = frames * channels * 2
   const fmtSize = extensible ? 40 : 16
@@ -66,7 +78,9 @@ export function makeWav(options: WavOptions): Uint8Array {
   view.setUint32(o + 4, dataSize, true)
   o += 8
   for (let frame = 0; frame < frames; frame++) {
-    const sample = Math.round(Math.sin((2 * Math.PI * 440 * frame) / sampleRate) * 3000)
+    const sample = Math.round(
+      Math.sin((2 * Math.PI * 440 * frame) / sampleRate) * amplitude * (ramp ? frame / frames : 1),
+    )
     for (let ch = 0; ch < channels; ch++)
       view.setInt16(o + (frame * channels + ch) * 2, sample, true)
   }
