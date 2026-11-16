@@ -20,6 +20,7 @@ scope.onmessage = ({ data }) => {
     pyramid.levels.flatMap((level) => [
       level.min.buffer as ArrayBuffer,
       level.max.buffer as ArrayBuffer,
+      level.rms.buffer as ArrayBuffer,
     ]),
   )
   scope.postMessage({ type: 'done', peaks: { pyramids } }, transfer)

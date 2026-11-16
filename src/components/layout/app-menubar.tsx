@@ -1,8 +1,12 @@
+import { useCallback, useSyncExternalStore } from 'react'
 import {
   Menubar,
   MenubarContent,
   MenubarItem,
+  MenubarLabel,
   MenubarMenu,
+  MenubarRadioGroup,
+  MenubarRadioItem,
   MenubarSeparator,
   MenubarShortcut,
   MenubarSub,
@@ -11,6 +15,24 @@ import {
   MenubarTrigger,
 } from '@/components/ui/menubar'
 import { appMenus, type MenuDefinition, type MenuEntry } from './menus'
+
+function RadioEntry({ entry }: { entry: Extract<MenuEntry, { type: 'radio' }> }) {
+  const { store } = entry
+  const subscribe = useCallback((listener: () => void) => store.subscribe(listener), [store])
+  const value = useSyncExternalStore(subscribe, () => store.getSnapshot())
+  return (
+    <>
+      <MenubarLabel inset>{entry.label}</MenubarLabel>
+      <MenubarRadioGroup value={value} onValueChange={(next) => store.set(next)}>
+        {entry.options.map((option) => (
+          <MenubarRadioItem key={option.value} value={option.value}>
+            {option.label}
+          </MenubarRadioItem>
+        ))}
+      </MenubarRadioGroup>
+    </>
+  )
+}
 
 function MenuEntries({ entries }: { entries: MenuEntry[] }) {
   return entries.map((entry, index) => {
@@ -26,6 +48,8 @@ function MenuEntries({ entries }: { entries: MenuEntry[] }) {
             </MenubarSubContent>
           </MenubarSub>
         )
+      case 'radio':
+        return <RadioEntry key={entry.label} entry={entry} />
       case 'item':
         return (
           <MenubarItem

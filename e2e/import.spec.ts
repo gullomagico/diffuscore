@@ -303,3 +303,53 @@ test('the View menu toggles the light theme and the Mirrored waveform is redrawn
   await expect(page.locator('html')).toHaveClass(/dark/)
   await expect.poll(red).toBe(dark)
 })
+
+test('the View menu chooses the waveform style and the Mirrored waveform is redrawn in it', async ({
+  page,
+}) => {
+  await page.goto('/')
+  // A rising level, so the peak envelope and its moving average are not the same picture.
+  await page
+    .getByLabel('Audio file')
+    .setInputFiles(wav('loud.wav', 2, 2, { sampleRate: 8000, amplitude: 20000, ramp: true }))
+  const waveform = page.getByRole('img', { name: 'Mirrored waveform: R above, L below' })
+  await expect.poll(async () => (await inkAwayFromZeroLine(waveform)).above).toBeGreaterThan(0)
+
+  async function chooseStyle(name: string) {
+    await page.getByRole('menuitem', { name: 'View' }).click()
+    await page.getByRole('menuitem', { name: 'Waveform' }).click()
+    await page.getByRole('menuitemradio', { name, exact: true }).click()
+  }
+
+  // The default is Peak + RMS.
+  await page.getByRole('menuitem', { name: 'View' }).click()
+  await page.getByRole('menuitem', { name: 'Waveform' }).click()
+  await expect(page.getByRole('menuitemradio', { name: 'Peak + RMS' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  )
+  await expect(page.getByRole('menuitemradio', { name: 'Peak', exact: true })).toHaveAttribute(
+    'aria-checked',
+    'false',
+  )
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Escape')
+  const peakRms = await canvasHash(waveform)
+
+  // Each style draws a different picture (the hash covers alpha: faint and solid layers differ).
+  let previous = peakRms
+  for (const name of ['Peak', 'RMS', 'Smoothed peak']) {
+    await chooseStyle(name)
+    await expect.poll(() => canvasHash(waveform)).not.toBe(previous)
+    previous = await canvasHash(waveform)
+  }
+
+  await chooseStyle('Peak + RMS')
+  await expect.poll(() => canvasHash(waveform)).toBe(peakRms)
+  await page.getByRole('menuitem', { name: 'View' }).click()
+  await page.getByRole('menuitem', { name: 'Waveform' }).click()
+  await expect(page.getByRole('menuitemradio', { name: 'Peak + RMS' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  )
+})

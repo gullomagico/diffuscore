@@ -4,6 +4,10 @@ import { subscribeTheme } from '@/lib/theme'
 import { createFrameScheduler } from '@/timeline/frame'
 import type { Viewport, ViewportSnapshot } from '@/timeline/viewport'
 
+type Subscribe = (listener: () => void) => () => void
+
+const NO_SUBSCRIPTIONS: readonly Subscribe[] = []
+
 export interface CanvasFrame {
   /** Canvas size in device pixels. */
   readonly width: number
@@ -14,11 +18,14 @@ export interface CanvasFrame {
 
 /**
  * Draws a canvas outside React's render cycle: one requestAnimationFrame after the Viewport, the
- * size, the devicePixelRatio or `draw` changed. `draw` is given a cleared canvas in device pixels.
+ * size, the devicePixelRatio or `draw` changed, or an extra subscription fired (`draw` reads those
+ * settings itself). `draw` is given a cleared canvas in device pixels. The theme is always watched.
+ * `subscriptions` must be stable between renders (module-level stores).
  */
 export function useCanvasLayer(
   viewport: Viewport,
   draw: (context: CanvasRenderingContext2D, frame: CanvasFrame) => void,
+  subscriptions: readonly Subscribe[] = NO_SUBSCRIPTIONS,
 ): RefObject<HTMLCanvasElement | null> {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const drawRef = useRef(draw)
@@ -51,6 +58,7 @@ export function useCanvasLayer(
 
     const unsubscribe = viewport.subscribe(scheduler.invalidate)
     const unsubscribeTheme = subscribeTheme(scheduler.invalidate)
+    const unsubscribeExtra = subscriptions.map((subscribe) => subscribe(scheduler.invalidate))
     const resizeObserver = new ResizeObserver(scheduler.invalidate)
     resizeObserver.observe(canvas)
 
@@ -72,10 +80,11 @@ export function useCanvasLayer(
       resizeObserver.disconnect()
       unsubscribe()
       unsubscribeTheme()
+      for (const stop of unsubscribeExtra) stop()
       scheduler.dispose()
       invalidateRef.current = () => {}
     }
-  }, [viewport])
+  }, [viewport, subscriptions])
 
   return canvasRef
 }
