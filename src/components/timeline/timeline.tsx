@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import type { KeyboardEvent } from 'react'
 import type { SourceAnalysis } from '@/audio/analysis'
 import { createViewport } from '@/timeline/viewport'
-import { MirroredWaveformLane } from './mirrored-waveform-lane'
+import { OverlayLane } from './overlay-lane'
 import { TimeRuler } from './time-ruler'
 
 /** Zoom step of the + and - keys. */
@@ -83,7 +83,7 @@ export function Timeline({ analysis }: { analysis: SourceAnalysis }) {
       className="flex h-full flex-col outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
       <TimeRuler viewport={viewport} />
-      <MirroredWaveformLane analysis={analysis} viewport={viewport} />
+      <OverlayLane analysis={analysis} viewport={viewport} />
     </div>
   )
 }

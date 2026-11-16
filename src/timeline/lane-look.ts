@@ -22,3 +22,23 @@ export const SPECTROGRAM_COLOR_STOPS: readonly string[] = [
   '#fecf92',
   '#fcfdbf',
 ]
+
+/** The Lane background, behind the spectrogram. Dark in both app themes: only the chrome follows the theme. */
+export const LANE_BACKGROUND = '#000004'
+
+/** Waveform colours, one set for every theme. Mono is drawn in the L colour. */
+export const WAVEFORM_COLOR_L = 'oklch(0.80 0.12 240 / 0.8)'
+export const WAVEFORM_COLOR_R = 'oklch(0.92 0.14 170 / 0.8)'
+export const WAVEFORM_COLOR_MONO = WAVEFORM_COLOR_L
+
+/** Colour of text in the Lane (the "Mono" label), readable on the dark background. */
+export const LANE_TEXT_COLOR = 'oklch(0.9 0 0)'
+
+/** Channel labels (R, L, Mono), drawn on the waveform canvas, in CSS pixels. */
+export const CHANNEL_LABEL_FONT_PX = 11
+export const CHANNEL_LABEL_INSET_PX = 6
+
+/** Frequency axis labels on the Lane's right edge, in CSS pixels. */
+export const FREQUENCY_LABEL_FONT_PX = 10
+export const FREQUENCY_LABEL_INSET_PX = 4
+export const FREQUENCY_LABEL_BACKING = 'rgb(0 0 0 / 0.5)'
