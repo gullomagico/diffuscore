@@ -8,7 +8,7 @@
 // rows, whatever the Source's duration and the zoom: work per frame <= 3 x width x 512.
 
 import { SPECTROGRAM_COLOR_STOPS, SPECTROGRAM_STRETCH } from './lane-look'
-import { SPECTROGRAM_ROWS } from './spectrogram'
+import { SPECTROGRAM_ROWS } from './frequency-axis'
 import type { SpectrogramOverview } from './spectrogram'
 
 /** 256 RGBA entries (1024 bytes): index = quantised dB 0..255. */

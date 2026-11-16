@@ -4,6 +4,7 @@ import {
   MAX_ZOOM_VISIBLE_SECONDS,
   createViewport,
   timeToX,
+  visibleTimeRange,
   xToTime,
   type ViewportSnapshot,
 } from './viewport'
@@ -319,5 +320,24 @@ describe('Viewport', () => {
       expect(xToTime(snapshot, timeToX(snapshot, 33.25))).toBe(33.25)
       expect(timeToX(snapshot, xToTime(snapshot, 321))).toBe(321)
     })
+  })
+})
+
+describe('visibleTimeRange', () => {
+  const snapshot: ViewportSnapshot = {
+    startTime: 10,
+    pixelsPerSecond: 50,
+    width: 400,
+    duration: 100,
+  }
+
+  test('spans the device width at the zoom times the device pixel ratio', () => {
+    expect(visibleTimeRange(snapshot, 800, 2)).toEqual({ startTime: 10, endTime: 18 })
+    expect(visibleTimeRange(snapshot, 400, 1)).toEqual({ startTime: 10, endTime: 18 })
+  })
+
+  test('an unfitted viewport (zoom 0) is an empty range at its start', () => {
+    const empty = { ...snapshot, pixelsPerSecond: 0 }
+    expect(visibleTimeRange(empty, 800, 2)).toEqual({ startTime: 10, endTime: 10 })
   })
 })

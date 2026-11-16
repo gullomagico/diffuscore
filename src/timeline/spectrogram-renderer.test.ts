@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vite-plus/test'
-import { SPECTROGRAM_ROWS, buildColumnMaxLevels } from './spectrogram'
+import { SPECTROGRAM_ROWS } from './frequency-axis'
+import { buildColumnMaxLevels, buildSourceSpectrograms } from './spectrogram'
 import type { SpectrogramOverview } from './spectrogram'
 import {
   createCanvas2DSpectrogramRenderer,
@@ -165,6 +166,45 @@ describe('shrink to fit a 30-minute Source', () => {
       expect(reads).toBeLessThanOrEqual(bound)
     }
     expect(fit).toBeLessThanOrEqual(shortFit * 3)
+  })
+})
+
+describe('a real click through the whole pipeline', () => {
+  test('is clearly above the floor at overview resolution and survives the fit-to-width shrink of a 30-minute Source', () => {
+    // 10 s of silence at 8 kHz with a one-sample click centred in an STFT frame (sample 80 x hop 512).
+    const rate = 8000
+    const samples = new Float32Array(10 * rate)
+    samples[40960] = 1
+    const real = buildSourceSpectrograms([samples], rate).channels[0]!.levels[0]!
+    const clickColumn = Math.floor((40960 / rate) * real.columnsPerSecond) // 51
+    const cells = real.data.subarray(
+      clickColumn * SPECTROGRAM_ROWS,
+      (clickColumn + 1) * SPECTROGRAM_ROWS,
+    )
+    const peak = Math.max(...cells)
+    expect(peak).toBeGreaterThan(100) // clearly above the floor (0) at overview resolution
+
+    // Splice that column into a 30-minute floor overview, and render it fit to 1600 device pixels.
+    const DURATION = 1800
+    const COLUMNS = DURATION * 10
+    const position = 9001
+    const data = new Uint8Array(COLUMNS * SPECTROGRAM_ROWS)
+    data.set(cells, position * SPECTROGRAM_ROWS)
+    const overview = {
+      levels: buildColumnMaxLevels({ columns: COLUMNS, columnsPerSecond: 10, data }),
+    }
+    const width = 1600
+    const { out } = render(overview, 0, DURATION, DURATION, width, 8)
+    const x = Math.floor((position / 10 / DURATION) * width) // 800
+
+    let brightest = 0
+    for (let y = 0; y < 8; y++) brightest = Math.max(brightest, pixel(out, width, x, y)[0]!)
+    expect(brightest).toBe(color(peak)[0])
+    expect(brightest).toBeGreaterThan(color(0)[0]! + 40)
+    for (let y = 0; y < 8; y++) {
+      expect(pixel(out, width, x - 3, y)).toEqual(color(0))
+      expect(pixel(out, width, x + 3, y)).toEqual(color(0))
+    }
   })
 })
 

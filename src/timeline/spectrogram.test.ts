@@ -11,9 +11,9 @@ import {
   createRowMap,
   mapPowerToRows,
   quantizeDb,
-  rowBandHz,
   stftParameters,
 } from './spectrogram'
+import { rowBandHz } from './frequency-axis'
 import type { SpectrogramLevel, SpectrogramOverview } from './spectrogram'
 
 const RATES = [48000, 8000]
@@ -95,12 +95,6 @@ describe('quantizeDb', () => {
 })
 
 describe('mapPowerToRows', () => {
-  test('rows span 20 Hz to 24 kHz logarithmically', () => {
-    expect(rowBandHz(0)[0]).toBeCloseTo(20, 6)
-    expect(rowBandHz(SPECTROGRAM_ROWS - 1)[1]).toBeCloseTo(24000, 3)
-    expect(rowBandHz(256)[0]).toBeCloseTo(20 * Math.sqrt(1200), 6)
-  })
-
   test('a row containing bin centres takes the maximum of them', () => {
     const rate = 48000
     const { size } = stftParameters(rate)

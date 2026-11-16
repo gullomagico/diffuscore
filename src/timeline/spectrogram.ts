@@ -2,13 +2,10 @@
 // pooling. Pure and worker-free; everything here is plain data (typed arrays and numbers) so it
 // crosses the worker boundary. Nothing assumes a sample rate: every parameter derives from it.
 import FFT from 'fft.js'
+import { SPECTROGRAM_ROWS, rowBandHz } from './frequency-axis'
 
-/** Rows of a spectrogram, on a logarithmic frequency axis. */
-export const SPECTROGRAM_ROWS = 512
-/** The axis is fixed at every sample rate: row 0 starts here. */
-export const MIN_FREQUENCY_HZ = 20
-/** The last row ends here, whatever the Source's Nyquist frequency. */
-export const MAX_FREQUENCY_HZ = 24000
+export { MAX_FREQUENCY_HZ, MIN_FREQUENCY_HZ, SPECTROGRAM_ROWS } from './frequency-axis'
+
 /** Quantised 0 means this level or less. */
 export const FLOOR_DB = -100
 /** Quantised 255 means this level or more. */
@@ -50,16 +47,7 @@ export function stftParameters(sampleRate: number): { size: number; hop: number 
   return { size, hop: size / 2 }
 }
 
-/** The frequency band [low, high) of a row, in Hz. */
-export function rowBandHz(row: number): [number, number] {
-  const ratio = MAX_FREQUENCY_HZ / MIN_FREQUENCY_HZ
-  return [
-    MIN_FREQUENCY_HZ * ratio ** (row / SPECTROGRAM_ROWS),
-    MIN_FREQUENCY_HZ * ratio ** ((row + 1) / SPECTROGRAM_ROWS),
-  ]
-}
-
-// Mode 0 is a row above Nyquist (the floor).
+const ROW_FLOOR = 0 // a row above the Source's Nyquist frequency
 const ROW_MAX = 1
 const ROW_INTERPOLATE = 2
 
@@ -67,10 +55,12 @@ const ROW_INTERPOLATE = 2
 export interface RowMap {
   readonly size: number
   readonly mode: Uint8Array
-  /** ROW_MAX: first bin of the row. ROW_INTERPOLATE: the lower neighbour bin. */
+  /** ROW_MAX: first bin of the row. */
   readonly first: Int32Array
   /** ROW_MAX: last bin of the row (inclusive). */
   readonly last: Int32Array
+  /** ROW_INTERPOLATE: the lower neighbour bin (the upper one is lower + 1). */
+  readonly lower: Int32Array
   /** ROW_INTERPOLATE: weight of the upper neighbour. */
   readonly weight: Float64Array
 }
@@ -81,6 +71,7 @@ export function createRowMap(sampleRate: number, size: number): RowMap {
   const mode = new Uint8Array(SPECTROGRAM_ROWS)
   const first = new Int32Array(SPECTROGRAM_ROWS)
   const last = new Int32Array(SPECTROGRAM_ROWS)
+  const lower = new Int32Array(SPECTROGRAM_ROWS)
   const weight = new Float64Array(SPECTROGRAM_ROWS)
   for (let r = 0; r < SPECTROGRAM_ROWS; r++) {
     const [low, high] = rowBandHz(r)
@@ -94,12 +85,15 @@ export function createRowMap(sampleRate: number, size: number): RowMap {
     }
     const position = Math.sqrt(low * high) / binHz
     const k = Math.floor(position)
-    if (k + 1 > nyquistBin) continue // above the Source's Nyquist frequency: stays at the floor
+    if (k + 1 > nyquistBin) {
+      mode[r] = ROW_FLOOR // above the Source's Nyquist frequency
+      continue
+    }
     mode[r] = ROW_INTERPOLATE
-    first[r] = k
+    lower[r] = k
     weight[r] = position - k
   }
-  return { size, mode, first, last, weight }
+  return { size, mode, first, last, lower, weight }
 }
 
 /** Maps one power spectrum (bins 0..size/2) to out[0..SPECTROGRAM_ROWS). */
@@ -117,9 +111,10 @@ export function mapPowerToRows(
       }
       out[r] = max
     } else if (mode === ROW_INTERPOLATE) {
-      const k = map.first[r]!
+      const k = map.lower[r]!
       out[r] = power[k]! + (power[k + 1]! - power[k]!) * map.weight[r]!
     } else {
+      // ROW_FLOOR: stays at the floor
       out[r] = 0
     }
   }

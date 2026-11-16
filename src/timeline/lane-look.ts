@@ -1,6 +1,7 @@
 // The Lane's tunable look, in one place: colours, modes and sizes that a human visual review (#12)
 // adjusts by eye. Pure data, no DOM, no logic: nothing here changes how the Lane behaves, only how
-// it looks. Waveform colours, label sizes and the Lane background join the spectrogram entries below.
+// it looks: the spectrogram's stretch mode and colour stops, the Lane background, the waveform
+// colours, and the label colours and sizes.
 
 /** How a spectrogram finer than its overview (zoomed in past 10 columns per second) is stretched. */
 export type SpectrogramStretch = 'nearest'
@@ -23,8 +24,12 @@ export const SPECTROGRAM_COLOR_STOPS: readonly string[] = [
   '#fcfdbf',
 ]
 
-/** The Lane background, behind the spectrogram. Dark in both app themes: only the chrome follows the theme. */
-export const LANE_BACKGROUND = '#000004'
+/**
+ * The Lane background, behind the spectrogram. Dark in both app themes: only the chrome follows
+ * the theme. It is the colour table's floor stop, so past the Source's end the Lane looks like a
+ * silent spectrogram.
+ */
+export const LANE_BACKGROUND: string = SPECTROGRAM_COLOR_STOPS[0]!
 
 /** Waveform colours, one set for every theme. Mono is drawn in the L colour. */
 export const WAVEFORM_COLOR_L = 'oklch(0.80 0.12 240 / 0.8)'

@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react'
 import type { SourceAnalysis } from '@/audio/analysis'
+import { backgroundOverview } from '@/timeline/overlay'
 import {
   createCanvas2DSpectrogramRenderer,
   createColorTable,
@@ -7,6 +8,7 @@ import {
 import type { SpectrogramRenderer } from '@/timeline/spectrogram-renderer'
 import { useCanvasLayer } from './use-canvas-layer'
 import type { CanvasFrame } from './use-canvas-layer'
+import { visibleTimeRange } from '@/timeline/viewport'
 import type { Viewport } from '@/timeline/viewport'
 
 const COLOR_TABLE = createColorTable()
@@ -24,9 +26,7 @@ export function SpectrogramLayer({
   viewport: Viewport
 }) {
   const stereo = analysis.source.channels.length > 1
-  const overview = stereo
-    ? analysis.spectrograms.total
-    : (analysis.spectrograms.channels[0] ?? null)
+  const overview = backgroundOverview(analysis.spectrograms)
   // One renderer per context: it keeps its working memory between frames.
   const rendererRef = useRef<{
     context: CanvasRenderingContext2D
@@ -40,11 +40,10 @@ export function SpectrogramLayer({
       if (rendererRef.current?.context !== context) {
         rendererRef.current = { context, renderer: createCanvas2DSpectrogramRenderer(context) }
       }
-      const { startTime, pixelsPerSecond } = frame.viewport
       rendererRef.current.renderer.draw(
         overview,
         COLOR_TABLE,
-        { startTime, endTime: startTime + width / (pixelsPerSecond * ratio) },
+        visibleTimeRange(frame.viewport, width, ratio),
         analysis.source.duration,
         { x: 0, y: 0, width, height },
       )
