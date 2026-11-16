@@ -177,16 +177,21 @@ export function createImporter(deps: ImportDeps): Importer {
       if (progress === state.progress) return
       setState({ ...state, progress })
     }
+    // Whoever releases or replaces the Source also stops its analysis.
+    const unsubscribe = deps.source.subscribe(() => {
+      if (deps.source.getSnapshot() !== source) controller.abort()
+    })
     try {
       const peaks = await deps.analyze(source, { onProgress, signal: controller.signal })
       if (!isCurrent()) return null
       // Published before the overlay goes away, so there is never a moment with neither.
       deps.analysis.publish(source, peaks)
     } catch {
-      if (!isCurrent()) return null
+      if (!isCurrent() || controller.signal.aborted) return null
       if (deps.source.getSnapshot() === source) deps.source.release()
       return failure('analysis-failed', 'This Source could not be analyzed.')
     } finally {
+      unsubscribe()
       if (analyzing === mine) analyzing = null
     }
     return null

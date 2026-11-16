@@ -11,8 +11,6 @@ export interface PeakLevel {
 
 /** The peak pyramid of one Channel. */
 export interface PeakPyramid {
-  /** Hz, read from the Source. */
-  readonly sampleRate: number
   /** Length of the Channel in samples. */
   readonly length: number
   /** Finest first. Each level's samplesPerBucket is twice the previous one's. */
@@ -38,7 +36,7 @@ export function buildPeakPyramid(
   const length = samples.length
   if (length === 0) {
     onProgress?.(1)
-    return { sampleRate, length, levels: [] }
+    return { length, levels: [] }
   }
 
   const finest = Math.max(1, Math.round(FINEST_BUCKET_SECONDS * sampleRate))
@@ -91,7 +89,7 @@ export function buildPeakPyramid(
   }
 
   onProgress?.(1)
-  return { sampleRate, length, levels }
+  return { length, levels }
 }
 
 /** Index into pyramid.levels of the level to draw with, or -1 when a column is narrower than one finest bucket and raw samples must be read. */

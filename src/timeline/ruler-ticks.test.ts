@@ -51,7 +51,7 @@ describe('rulerTicks', () => {
     expect(ticks[7]!.time).toBe(0.7)
   })
 
-  test('a scrolled view starts at the first tick inside it', () => {
+  test('a scrolled Viewport starts at the first tick inside it', () => {
     const ticks = rulerTicks({ startTime: 12.34, pixelsPerSecond: 200, width: 1000, duration: 100 })
     expect(ticks[0]).toEqual({ time: 12.4, label: null })
     expect(ticks.find((t) => t.label !== null)).toEqual({ time: 13, label: '00:13' })
@@ -105,7 +105,7 @@ describe('rulerTicks', () => {
       }
     })
 
-    test('at least two labels are always in view', () => {
+    test('at least two labels are always visible', () => {
       for (const viewport of snapshots) {
         expect(labelled(viewport).length).toBeGreaterThanOrEqual(2)
       }

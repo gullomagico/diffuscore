@@ -12,7 +12,7 @@ const decoded: DecodedAudio = {
 }
 
 const peaks = (length: number): SourcePeaks => ({
-  pyramids: [{ sampleRate: 8000, length, levels: [] }],
+  pyramids: [{ length, levels: [] }],
 })
 
 function setup() {

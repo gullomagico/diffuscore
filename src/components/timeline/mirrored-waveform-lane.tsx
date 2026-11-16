@@ -1,6 +1,10 @@
 import { useCallback, useRef } from 'react'
 import type { SourceAnalysis } from '@/audio/analysis'
-import { createMirroredColumns, readMirroredColumns } from '@/timeline/mirrored-waveform'
+import {
+  columnsInsideSource,
+  createMirroredColumns,
+  readMirroredColumns,
+} from '@/timeline/mirrored-waveform'
 import type { MirroredColumns } from '@/timeline/mirrored-waveform'
 import type { Viewport } from '@/timeline/viewport'
 import { useCanvasLayer } from './use-canvas-layer'
@@ -34,17 +38,7 @@ export function MirroredWaveformLane({
       const downReach = height - mid
 
       // Columns starting at or after the end of the Source are left empty.
-      const columnsPerSecond = frame.viewport.pixelsPerSecond * ratio
-      const inside =
-        columnsPerSecond > 0
-          ? Math.min(
-              width,
-              Math.max(
-                0,
-                Math.ceil((analysis.source.duration - frame.viewport.startTime) * columnsPerSecond),
-              ),
-            )
-          : 0
+      const inside = columnsInsideSource(analysis, frame.viewport, ratio, width)
 
       context.fillStyle = style.getPropertyValue('--waveform')
       for (let x = 0; x < inside; x++) {

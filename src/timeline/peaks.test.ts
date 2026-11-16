@@ -112,11 +112,10 @@ describe('buildPeakPyramid', () => {
     expect(at(100).samplesPerBucket).toBe(1)
   })
 
-  test('the coarsest level has exactly one bucket and reports the length and rate', () => {
+  test('the coarsest level has exactly one bucket and reports the length', () => {
     const pyramid = buildPeakPyramid(new Float32Array(1000), RATE)
     expect(pyramid.levels.at(-1)?.min).toHaveLength(1)
     expect(pyramid.length).toBe(1000)
-    expect(pyramid.sampleRate).toBe(RATE)
     expect(buildPeakPyramid(new Float32Array(5), RATE).levels).toHaveLength(1)
   })
 
@@ -190,7 +189,7 @@ describe('readColumns', () => {
     expect(reads).toBe(8)
   })
 
-  test('raw path: columns narrower than one sample repeat the nearest sample, never NaN', () => {
+  test('raw path: columns narrower than one sample repeat the sample they fall in, never NaN', () => {
     const pyramid = buildPeakPyramid(new Float32Array(512), RATE)
     const samples = ramp(512, 1)
     const out = envelope(5)

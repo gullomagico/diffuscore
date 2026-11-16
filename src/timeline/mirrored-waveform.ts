@@ -31,6 +31,19 @@ function absolutePeaks(envelope: ColumnEnvelope, target: Float32Array, columns: 
   }
 }
 
+/** How many of `total` device pixel columns start before the end of the Source. */
+export function columnsInsideSource(
+  analysis: SourceAnalysis,
+  viewport: ViewportSnapshot,
+  devicePixelRatio: number,
+  total: number,
+): number {
+  const columnsPerSecond = viewport.pixelsPerSecond * devicePixelRatio
+  if (!(columnsPerSecond > 0)) return 0
+  const remaining = (analysis.source.duration - viewport.startTime) * columnsPerSecond
+  return Math.min(total, Math.max(0, Math.ceil(remaining)))
+}
+
 /**
  * Fills the peak absolute value of each device pixel column. Stereo: up = R (Channel 1), down = L (Channel 0).
  * Mono: both = the single Channel. Returns the number of buckets or samples read (the work of one frame).
@@ -46,18 +59,12 @@ export function readMirroredColumns(
   out.down.fill(0)
   const { source, peaks } = analysis
   const sampleRate = source.sampleRate
-  const columnsPerSecond = viewport.pixelsPerSecond * devicePixelRatio
-  if (total === 0 || !(columnsPerSecond > 0) || source.channels.length === 0) return 0
-
-  const samplesPerColumn = sampleRate / columnsPerSecond
-  const startSample = viewport.startTime * sampleRate
   // Columns starting at or after the end of the Source stay 0.
-  const endSample = source.duration * sampleRate
-  const inside = Math.min(
-    total,
-    Math.max(0, Math.ceil((endSample - startSample) / samplesPerColumn)),
-  )
-  if (inside === 0) return 0
+  const inside = columnsInsideSource(analysis, viewport, devicePixelRatio, total)
+  if (inside === 0 || source.channels.length === 0) return 0
+
+  const samplesPerColumn = sampleRate / (viewport.pixelsPerSecond * devicePixelRatio)
+  const startSample = viewport.startTime * sampleRate
 
   const channelCount = source.channels.length
   const downIndex = 0

@@ -578,7 +578,7 @@ describe('cancel', () => {
 describe('analyzing', () => {
   const tick = () => new Promise((r) => setTimeout(r))
   const peaksOf = (length: number): SourcePeaks => ({
-    pyramids: [{ sampleRate: 8000, length, levels: [] }],
+    pyramids: [{ length, levels: [] }],
   })
 
   /** Runs an import up to the point where analysis is pending. */
@@ -717,6 +717,15 @@ describe('analyzing', () => {
     t.analyze.resolve(peaksOf(3))
     await done
     expect(t.analysis.getSnapshot()).toBeNull()
+    expect(t.importer.getSnapshot()).toEqual({ status: 'idle' })
+  })
+
+  test('a Source released by someone else during analysis aborts it without an error', async () => {
+    const { t, done } = await analyzing()
+    t.source.release()
+    expect(t.analyze.last().options.signal.aborted).toBe(true)
+    t.analyze.reject(new DOMException('aborted', 'AbortError'))
+    await done
     expect(t.importer.getSnapshot()).toEqual({ status: 'idle' })
   })
 
