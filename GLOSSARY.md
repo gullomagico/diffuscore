@@ -23,7 +23,7 @@ One signal of a Source: L and R for stereo, or a single Mono channel.
 _Avoid_: Track, canal
 
 **Total spectrogram**:
-A single spectrogram representing the energy of both Channels together, without cancellation between them.
+A single spectrogram representing the energy of both Channels together, without cancellation between them. Only a stereo Source has one: a Mono Source has just the spectrogram of its single Channel.
 _Avoid_: Mid spectrogram, sum spectrogram
 
 ## Workspace
@@ -36,7 +36,7 @@ The portion of the Timeline currently visible: which time range is shown and at 
 _Avoid_: View, window, camera
 
 **Lane**:
-One horizontal band of the Timeline showing one representation (waveform or spectrogram) of one or more Channels.
+One horizontal band of the Timeline showing one or more representations (waveform, spectrogram) of one or more Channels, layered one over the other.
 _Avoid_: Track, row, strip
 
 **Mirrored waveform**:

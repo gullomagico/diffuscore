@@ -17,4 +17,5 @@ We chose this because DiffuScore's core is a shared time↔pixel mapping on whic
   - zooming in requests detail tiles (512 columns at 32, 64 or 128 columns/s, about 58 ms each) from the worker, with neighbouring tiles computed ahead and a 64 MB LRU cache
   - until a detail tile is ready, the nearest coarser image is drawn stretched in its place
 - Spectrogram data is stored as quantised dB (`Uint8`) and coloured through a lookup table, so colormap and dB-range changes never need new FFTs. The renderer sits behind an interface so it can later be swapped for WebGL.
+- The frequency axis (logarithmic, 20 Hz to 24 kHz, 512 rows) is fixed when the analysis runs: changing it, for example to a linear axis, needs new FFTs.
 - We own HiDPI handling, tile caching, cursor-anchored zoom, worker messaging and, later, playhead sync.
