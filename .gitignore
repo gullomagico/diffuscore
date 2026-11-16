@@ -26,3 +26,8 @@ dist-ssr
 
 # playwright-cli output (snapshots, screenshots, logs)
 .playwright-cli
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
