@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vite-plus/test'
 import type { SourcePeaks } from '@/timeline/peaks'
 import { createAnalysisStore } from './analysis'
+import type { SourceAnalysisResult } from './analysis'
 import { createSourceStore } from './source'
 import type { DecodedAudio, Source } from './source'
 
@@ -11,8 +12,9 @@ const decoded: DecodedAudio = {
   getChannelData: () => Float32Array.from([0.5, -0.5]),
 }
 
-const peaks = (length: number): SourcePeaks => ({
-  pyramids: [{ length, levels: [] }],
+const peaks = (length: number): SourceAnalysisResult => ({
+  peaks: { pyramids: [{ length, levels: [] }] } satisfies SourcePeaks,
+  spectrograms: { channels: [{ levels: [] }], total: null },
 })
 
 function setup() {
@@ -34,7 +36,8 @@ describe('analysis store', () => {
 
     const snapshot = t.analysis.getSnapshot()
     expect(snapshot?.source).toBe(source)
-    expect(snapshot?.peaks).toBe(p)
+    expect(snapshot?.peaks).toBe(p.peaks)
+    expect(snapshot?.spectrograms).toBe(p.spectrograms)
   })
 
   test('ignores an analysis of a Source that is not the current one', () => {

@@ -1,11 +1,17 @@
 import { sourceStore } from '@/audio/source'
 import type { Source, SourceStore } from '@/audio/source'
 import type { SourcePeaks } from '@/timeline/peaks'
+import type { SourceSpectrograms } from '@/timeline/spectrogram'
 
-/** The analysis of a Source, ready to draw. Later slices add spectrograms here. */
-export interface SourceAnalysis {
-  readonly source: Source
+/** What analyzing a Source produces: its peak pyramids and its overview spectrograms. */
+export interface SourceAnalysisResult {
   readonly peaks: SourcePeaks
+  readonly spectrograms: SourceSpectrograms
+}
+
+/** The analysis of a Source, ready to draw: the Source and everything derived from it. */
+export interface SourceAnalysis extends SourceAnalysisResult {
+  readonly source: Source
 }
 
 export interface AnalyzeOptions {
@@ -14,14 +20,14 @@ export interface AnalyzeOptions {
   signal: AbortSignal
 }
 
-/** The injected analysis step: builds the peak data of a Source. Rejects when aborted or when the analysis fails. */
-export type Analyze = (source: Source, options: AnalyzeOptions) => Promise<SourcePeaks>
+/** The injected analysis step: builds the peaks and overview spectrograms of a Source. Rejects when aborted or when the analysis fails. */
+export type Analyze = (source: Source, options: AnalyzeOptions) => Promise<SourceAnalysisResult>
 
 export interface AnalysisStore {
   getSnapshot(): SourceAnalysis | null
   subscribe(listener: () => void): () => void
   /** Publishes the analysis of the current Source. Ignored if `source` is not the Source currently in the SourceStore. */
-  publish(source: Source, peaks: SourcePeaks): void
+  publish(source: Source, result: SourceAnalysisResult): void
   release(): void
 }
 
@@ -47,9 +53,9 @@ export function createAnalysisStore(sources: SourceStore): AnalysisStore {
         listeners.delete(listener)
       }
     },
-    publish(source, peaks) {
+    publish(source, result) {
       if (sources.getSnapshot() !== source) return
-      set({ source, peaks })
+      set({ source, peaks: result.peaks, spectrograms: result.spectrograms })
     },
     release() {
       if (current !== null) set(null)
