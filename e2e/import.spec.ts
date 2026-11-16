@@ -173,6 +173,17 @@ test('the Timeline draws a ruler and a Mirrored waveform that are not blank', as
     })
     .toBe(true)
 
+  // R and L are drawn in different colours.
+  const [r, l] = await waveform.evaluate((element) => {
+    const { width, height } = element as HTMLCanvasElement
+    const context = (element as HTMLCanvasElement).getContext('2d')!
+    const x = Math.floor(width / 2)
+    const mid = Math.floor(height / 2)
+    const pixel = (y: number) => Array.from(context.getImageData(x, y, 1, 1).data).join(',')
+    return [pixel(mid - 5), pixel(mid + 5)]
+  })
+  expect(r).not.toBe(l)
+
   const ruler = page.getByRole('img', { name: 'Time ruler' })
   await expect
     .poll(() =>

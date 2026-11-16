@@ -40,23 +40,35 @@ export function MirroredWaveformLane({
       // Columns starting at or after the end of the Source are left empty.
       const inside = columnsInsideSource(analysis, frame.viewport, ratio, width)
 
-      context.fillStyle = style.getPropertyValue('--waveform')
+      // Mono is one colour. Stereo gives each Channel its own, so the halves read apart at a glance.
+      const upColor = style.getPropertyValue(stereo ? '--waveform-r' : '--waveform')
+      const downColor = style.getPropertyValue(stereo ? '--waveform-l' : '--waveform')
+      context.fillStyle = upColor
       for (let x = 0; x < inside; x++) {
         const up = Math.round(columns.up[x]! * upReach)
+        if (up > 0) context.fillRect(x, mid - up, 1, up)
+      }
+      context.fillStyle = downColor
+      for (let x = 0; x < inside; x++) {
         // At least one device pixel at the zero line: silence is a thin line.
         const down = Math.max(1, Math.round(columns.down[x]! * downReach))
-        context.fillRect(x, mid - up, 1, up + down)
+        context.fillRect(x, mid, 1, down)
       }
 
-      context.fillStyle = style.getPropertyValue('--muted-foreground')
+      // The Channel labels double as the colour legend.
       context.font = `${LABEL_FONT_PX * ratio}px ${style.fontFamily}`
       context.textBaseline = 'top'
       const inset = LABEL_INSET_PX * ratio
-      context.fillText(stereo ? 'R' : 'Mono', inset, inset)
       if (stereo) {
+        context.fillStyle = upColor
+        context.fillText('R', inset, inset)
         // In the far corner of its half, mirroring R: next to the zero line the envelope would cover it.
+        context.fillStyle = downColor
         context.textBaseline = 'bottom'
         context.fillText('L', inset, height - inset)
+      } else {
+        context.fillStyle = style.getPropertyValue('--muted-foreground')
+        context.fillText('Mono', inset, inset)
       }
     },
     [analysis, stereo],
