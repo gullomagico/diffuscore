@@ -261,3 +261,34 @@ test('zooming with the keyboard redraws the Mirrored waveform', async ({ page })
   await page.keyboard.press('-')
   await expect.poll(() => canvasHash(waveform)).toBe(before)
 })
+
+test('the View menu toggles the light theme and the Mirrored waveform is redrawn in it', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await page.getByLabel('Audio file').setInputFiles(wav('loud.wav', 2, 2, { amplitude: 20000 }))
+  const waveform = page.getByRole('img', { name: 'Mirrored waveform: R above, L below' })
+  await expect.poll(async () => (await inkAwayFromZeroLine(waveform)).above).toBeGreaterThan(0)
+  /** Sum of the red channel: the waveform's colour differs between the themes. */
+  const red = () =>
+    waveform.evaluate((element) => {
+      const { width, height } = element as HTMLCanvasElement
+      const data = (element as HTMLCanvasElement)
+        .getContext('2d')!
+        .getImageData(0, 0, width, height).data
+      let sum = 0
+      for (let i = 0; i < data.length; i += 4) sum += data[i]!
+      return sum
+    })
+  const dark = await red()
+
+  await page.getByRole('menuitem', { name: 'View' }).click()
+  await page.getByRole('menuitem', { name: 'Toggle Light/Dark Theme' }).click()
+  await expect(page.locator('html')).not.toHaveClass(/dark/)
+  await expect.poll(red).not.toBe(dark)
+
+  await page.getByRole('menuitem', { name: 'View' }).click()
+  await page.getByRole('menuitem', { name: 'Toggle Light/Dark Theme' }).click()
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await expect.poll(red).toBe(dark)
+})

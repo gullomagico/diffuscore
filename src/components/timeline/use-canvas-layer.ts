@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { RefObject } from 'react'
+import { subscribeTheme } from '@/lib/theme'
 import { createFrameScheduler } from '@/timeline/frame'
 import type { Viewport, ViewportSnapshot } from '@/timeline/viewport'
 
@@ -49,6 +50,7 @@ export function useCanvasLayer(
     invalidateRef.current = scheduler.invalidate
 
     const unsubscribe = viewport.subscribe(scheduler.invalidate)
+    const unsubscribeTheme = subscribeTheme(scheduler.invalidate)
     const resizeObserver = new ResizeObserver(scheduler.invalidate)
     resizeObserver.observe(canvas)
 
@@ -69,6 +71,7 @@ export function useCanvasLayer(
       ratioQuery?.removeEventListener('change', onRatioChange)
       resizeObserver.disconnect()
       unsubscribe()
+      unsubscribeTheme()
       scheduler.dispose()
       invalidateRef.current = () => {}
     }

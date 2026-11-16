@@ -8,6 +8,7 @@
 import { importShortcutLabel } from '@/lib/import-shortcut'
 import { requestImport } from '@/lib/import-request'
 import { isMac } from '@/lib/platform'
+import { toggleTheme } from '@/lib/theme'
 
 export type MenuEntry =
   | {
@@ -39,6 +40,11 @@ export const appMenus: MenuDefinition[] = [
         onSelect: requestImport,
       },
     ],
+  },
+  {
+    id: 'view',
+    label: 'View',
+    items: [{ type: 'item', label: 'Toggle Light/Dark Theme', onSelect: toggleTheme }],
   },
   {
     id: 'help',
