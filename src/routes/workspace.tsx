@@ -72,9 +72,9 @@ function Workspace() {
         aria-label="Audio file"
         onChange={onInputChange}
       />
-      {source ? (
+      {/* A Source is shown only once its analysis is ready: until then the overlay covers the empty state. */}
+      {source && analysis?.source === source ? (
         <LoadedView
-          source={source}
           analysis={analysis}
           errorMessage={errorMessage}
           onChoose={openPicker}

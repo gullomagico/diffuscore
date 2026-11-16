@@ -1,8 +1,26 @@
 import { describe, expect, test } from 'vite-plus/test'
+import type { Source } from '@/audio/source'
 import { buildPeakPyramid, pickPeakLevel, readColumns } from './peaks'
 import type { ColumnEnvelope, PeakPyramid } from './peaks'
 
 const RATE = 8000
+
+/** A mono Source at a low sample rate, built directly: nothing may assume the working rate. */
+function sourceOf(samples: Float32Array): Source {
+  const channel = new Float32Array(new SharedArrayBuffer(samples.length * 4))
+  channel.set(samples)
+  return {
+    fileName: 'test.wav',
+    channels: [channel],
+    sampleRate: RATE,
+    duration: samples.length / RATE,
+  }
+}
+
+function pyramidOf(samples: Float32Array): PeakPyramid {
+  const source = sourceOf(samples)
+  return buildPeakPyramid(source.channels[0]!, source.sampleRate)
+}
 
 function envelope(columns: number): ColumnEnvelope {
   return { min: new Float32Array(columns), max: new Float32Array(columns) }
@@ -18,7 +36,7 @@ describe('buildPeakPyramid', () => {
   test('a sine with a 16-sample period gives -1/1 per 16 samples and half-ranges per 8', () => {
     const samples = new Float32Array(64)
     for (let i = 0; i < 64; i++) samples[i] = Math.sin((2 * Math.PI * i) / 16)
-    const { levels } = buildPeakPyramid(samples, RATE)
+    const { levels } = pyramidOf(samples)
     // 8-sample buckets alternate between [0, 1] and [-1, 0]
     expect(levels[0].min[0]).toBeCloseTo(0, 5)
     expect(levels[0].max[0]).toBeCloseTo(1, 5)
@@ -34,7 +52,7 @@ describe('buildPeakPyramid', () => {
 
   test('a slow ramp has literal per-bucket ranges', () => {
     // 80 samples = 10 buckets of 8, value = i / 80
-    const { levels } = buildPeakPyramid(ramp(80, 1 / 80), RATE)
+    const { levels } = pyramidOf(ramp(80, 1 / 80))
     expect(levels[0].min).toHaveLength(10)
     expect(levels[0].min[3]).toBeCloseTo(0.3, 6)
     expect(levels[0].max[3]).toBeCloseTo(31 / 80, 6)
@@ -49,7 +67,7 @@ describe('buildPeakPyramid', () => {
   test('a single-sample click only shows in the bucket containing it, at every level', () => {
     const samples = new Float32Array(1000)
     samples[517] = 0.8
-    const { levels } = buildPeakPyramid(samples, RATE)
+    const { levels } = pyramidOf(samples)
     // 517 is in finest bucket 64 (8 samples each)
     expect(levels[0].max[64]).toBeCloseTo(0.8, 6)
     expect(levels[0].max[63]).toBe(0)
@@ -63,7 +81,7 @@ describe('buildPeakPyramid', () => {
   })
 
   test('DC gives min = max = the DC value everywhere', () => {
-    const { levels } = buildPeakPyramid(new Float32Array(100).fill(0.25), RATE)
+    const { levels } = pyramidOf(new Float32Array(100).fill(0.25))
     expect(levels[0].min).toHaveLength(13)
     for (const level of levels) {
       expect(Array.from(level.min).every((v) => v === 0.25)).toBe(true)
@@ -74,7 +92,7 @@ describe('buildPeakPyramid', () => {
   test('a length that is not a multiple of the bucket size has a partial last bucket', () => {
     // 21 samples -> buckets of 8, 8 and 5; value = (i + 1) / 100
     const samples = ramp(21, 0.01).map((v) => v + 0.01)
-    const { levels } = buildPeakPyramid(samples, RATE)
+    const { levels } = pyramidOf(samples)
     expect(levels[0].min).toHaveLength(3)
     expect(levels[0].min[2]).toBeCloseTo(0.17, 6)
     expect(levels[0].max[2]).toBeCloseTo(0.21, 6)
@@ -89,7 +107,7 @@ describe('buildPeakPyramid', () => {
       seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
       samples[i] = (seed / 0xffffffff) * 2 - 1
     }
-    const { levels } = buildPeakPyramid(samples, RATE)
+    const { levels } = pyramidOf(samples)
     expect(levels.map((l) => l.min.length)).toEqual([14, 7, 4, 2, 1])
     for (let k = 1; k < levels.length; k++) {
       const fine = levels[k - 1]
@@ -113,20 +131,20 @@ describe('buildPeakPyramid', () => {
   })
 
   test('the coarsest level has exactly one bucket and reports the length', () => {
-    const pyramid = buildPeakPyramid(new Float32Array(1000), RATE)
+    const pyramid = pyramidOf(new Float32Array(1000))
     expect(pyramid.levels.at(-1)?.min).toHaveLength(1)
     expect(pyramid.length).toBe(1000)
-    expect(buildPeakPyramid(new Float32Array(5), RATE).levels).toHaveLength(1)
+    expect(pyramidOf(new Float32Array(5)).levels).toHaveLength(1)
   })
 
   test('an empty Channel gives no levels and does not throw', () => {
-    expect(buildPeakPyramid(new Float32Array(0), RATE).levels).toEqual([])
+    expect(pyramidOf(new Float32Array(0)).levels).toEqual([])
   })
 
   test('works on a view of a SharedArrayBuffer', () => {
     const samples = new Float32Array(new SharedArrayBuffer(4 * 16))
     samples[9] = -0.5
-    const { levels } = buildPeakPyramid(samples, RATE)
+    const { levels } = pyramidOf(samples)
     expect(levels[0].min[1]).toBe(-0.5)
   })
 
@@ -145,7 +163,7 @@ describe('buildPeakPyramid', () => {
 })
 
 describe('pickPeakLevel', () => {
-  const pyramid = buildPeakPyramid(new Float32Array(512), RATE) // buckets 8, 16, ... 512
+  const pyramid = pyramidOf(new Float32Array(512)) // buckets 8, 16, ... 512
 
   test('picks the coarsest level not wider than the column, compared in samples', () => {
     expect(pickPeakLevel(pyramid, 12)).toBe(0) // 1.5 ms -> 1 ms level
@@ -166,7 +184,7 @@ describe('pickPeakLevel', () => {
 describe('readColumns', () => {
   test('level path: columns tile the signal without gaps', () => {
     const samples = ramp(512, 1 / 512)
-    const pyramid = buildPeakPyramid(samples, RATE)
+    const pyramid = pyramidOf(samples)
     const out = envelope(4)
     // 12 samples per column -> 8-sample level; [0,12) reads buckets 0..0, [12,24) reads 1..2
     const reads = readColumns(pyramid, samples, 0, 12, 4, out)
@@ -180,7 +198,7 @@ describe('readColumns', () => {
   })
 
   test('raw path reads the samples array, not the pyramid', () => {
-    const pyramid = buildPeakPyramid(new Float32Array(512), RATE) // all zeros
+    const pyramid = pyramidOf(new Float32Array(512)) // all zeros
     const samples = ramp(512, 1)
     const out = envelope(2)
     const reads = readColumns(pyramid, samples, 10, 4, 2, out) // [10,14) and [14,18)
@@ -190,7 +208,7 @@ describe('readColumns', () => {
   })
 
   test('raw path: columns narrower than one sample repeat the sample they fall in, never NaN', () => {
-    const pyramid = buildPeakPyramid(new Float32Array(512), RATE)
+    const pyramid = pyramidOf(new Float32Array(512))
     const samples = ramp(512, 1)
     const out = envelope(5)
     readColumns(pyramid, samples, 10, 0.25, 5, out) // starts 10, 10.25, 10.5, 10.75, 11
@@ -200,7 +218,7 @@ describe('readColumns', () => {
 
   test('clamps at the end: a partial column reads what exists, later columns repeat the last bucket', () => {
     const samples = ramp(512, 1 / 512)
-    const pyramid = buildPeakPyramid(samples, RATE)
+    const pyramid = pyramidOf(samples)
     const out = envelope(3)
     readColumns(pyramid, samples, 504, 8, 3, out) // bucket 63, then past the end twice
     for (let i = 0; i < 3; i++) {
@@ -217,7 +235,7 @@ describe('readColumns', () => {
     // 20 samples -> buckets of 8, 8 and 4; the click is in the partial one
     const samples = new Float32Array(20)
     samples[19] = 0.75
-    const pyramid = buildPeakPyramid(samples, RATE)
+    const pyramid = pyramidOf(samples)
     const out = envelope(2)
     readColumns(pyramid, samples, 0, 10, 2, out) // fit: [0,10) and [10,20)
     expect(Array.from(out.max)).toEqual([0, 0.75])
@@ -225,7 +243,7 @@ describe('readColumns', () => {
 
   test('clamps at the end on the raw path and before the start', () => {
     const samples = ramp(512, 1)
-    const pyramid = buildPeakPyramid(samples, RATE)
+    const pyramid = pyramidOf(samples)
     const out = envelope(3)
     readColumns(pyramid, samples, 510, 1, 3, out) // 510, 511, past the end
     expect(Array.from(out.min)).toEqual([510, 511, 511])
@@ -240,7 +258,7 @@ describe('readColumns', () => {
 
   test('an empty Channel writes 0/0', () => {
     const samples = new Float32Array(0)
-    const pyramid = buildPeakPyramid(samples, RATE)
+    const pyramid = pyramidOf(samples)
     const out = envelope(2)
     out.min.fill(9)
     out.max.fill(9)
@@ -259,7 +277,7 @@ describe('bounded work per frame', () => {
     samples[1000] = 0.5
     samples[samples.length >> 1] = -0.5
     samples[samples.length - 10000] = 0.25
-    return { samples, pyramid: buildPeakPyramid(samples, RATE) }
+    return { samples, pyramid: pyramidOf(samples) }
   }
 
   for (const seconds of [180, 1800]) {

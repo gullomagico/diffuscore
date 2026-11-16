@@ -230,6 +230,8 @@ test('the Analyzing stage shows progress, and Cancel returns to the empty state'
   await page.getByLabel('Audio file').setInputFiles(wav('stereo.wav', 2, 1))
   await expect(page.getByRole('status')).toHaveText('Analyzing')
   await expect(page.getByRole('progressbar', { name: 'Analysis progress' })).toBeVisible()
+  // The Source is not shown before its peaks are ready.
+  await expect(page.getByRole('heading', { name: 'stereo.wav' })).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Cancel' }).click()
   await expect(page.getByRole('button', { name: 'Import audio file' })).toBeVisible()
