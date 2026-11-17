@@ -1,12 +1,16 @@
 import { describe, expect, test } from 'vite-plus/test'
+import { columnCount, tileColumns, tileKey, tileCount } from './detail-tile'
+import type { DetailLevel, DetailTile, TileKey } from './detail-tile'
 import { SPECTROGRAM_ROWS } from './frequency-axis'
 import { buildColumnMaxLevels, buildSourceSpectrograms } from './spectrogram'
 import type { SpectrogramOverview } from './spectrogram'
 import {
   createCanvas2DSpectrogramRenderer,
   createColorTable,
+  renderResolvedPixels,
   renderSpectrogramPixels,
 } from './spectrogram-renderer'
+import { resolveSpectrogram } from './tile-resolver'
 
 /** An overview of `columns` columns whose cell (c, r) is cell(c, r). */
 function overviewOf(
@@ -225,8 +229,17 @@ describe('createCanvas2DSpectrogramRenderer', () => {
     const renderer = createCanvas2DSpectrogramRenderer(context)
     const overview = overviewOf(2, (c) => (c === 0 ? 50 : 200))
     const rect = { x: 7, y: 3, width: 20, height: 4 }
-    renderer.draw(overview, table, { startTime: 0, endTime: 0.2 }, 0.2, rect)
-    renderer.draw(overview, table, { startTime: 0, endTime: 0.2 }, 0.2, rect)
+    const resolved = resolveSpectrogram({
+      level: 'overview',
+      startTime: 0,
+      endTime: 0.2,
+      kind: 'Total',
+      sampleCount: 9600,
+      sampleRate: 48000,
+      lookup: () => undefined,
+    })
+    renderer.draw(resolved, overview, table, { startTime: 0, endTime: 0.2 }, 0.2, rect)
+    renderer.draw(resolved, overview, table, { startTime: 0, endTime: 0.2 }, 0.2, rect)
     expect(created.length).toBe(1)
     expect(puts.map((p) => [p.x, p.y])).toEqual([
       [7, 3],
@@ -235,5 +248,272 @@ describe('createCanvas2DSpectrogramRenderer', () => {
     const data = created[0]!.data
     expect(Array.from(data.subarray(0, 4))).toEqual(color(50))
     expect(Array.from(data.subarray(19 * 4, 20 * 4))).toEqual(color(200))
+  })
+})
+
+// ---- Resolved rendering: tiles at the level, stand-ins, the overview ----
+
+const RATE = 48000
+
+/** A tile of `level` whose cell (column, row) is cell(absolute column, row). */
+function makeTile(
+  level: DetailLevel,
+  index: number,
+  sampleCount: number,
+  cell: (column: number, row: number) => number,
+): DetailTile {
+  const columns = tileColumns(columnCount(sampleCount, RATE, level), index)
+  const data = new Uint8Array(columns * SPECTROGRAM_ROWS)
+  for (let c = 0; c < columns; c++)
+    for (let r = 0; r < SPECTROGRAM_ROWS; r++)
+      data[c * SPECTROGRAM_ROWS + r] = cell(index * 512 + c, r)
+  return { kind: 'Total', level, index, columns, data }
+}
+
+function lookupOf(tiles: readonly DetailTile[]) {
+  const map = new Map(tiles.map((t) => [tileKey(t), t]))
+  return (key: TileKey) => map.get(tileKey(key))
+}
+
+function renderTiles(
+  level: 'overview' | DetailLevel,
+  tiles: readonly DetailTile[],
+  overview: SpectrogramOverview,
+  seconds: number,
+  start: number,
+  end: number,
+  width: number,
+  height = 4,
+) {
+  const resolved = resolveSpectrogram({
+    level,
+    startTime: start,
+    endTime: end,
+    kind: 'Total',
+    sampleCount: Math.round(seconds * RATE),
+    sampleRate: RATE,
+    lookup: lookupOf(tiles),
+  })
+  const out = new Uint8ClampedArray(width * height * 4)
+  const reads = renderResolvedPixels(
+    resolved,
+    overview,
+    table,
+    { startTime: start, endTime: end },
+    seconds,
+    width,
+    height,
+    out,
+  )
+  return { out, reads }
+}
+
+describe('renderResolvedPixels', () => {
+  const SECONDS = 60
+  const samples = SECONDS * RATE
+  const flat = overviewOf(SECONDS * 10, () => 30)
+
+  function expectNoGaps(out: Uint8ClampedArray, width: number, start: number, end: number) {
+    const pixelSeconds = (end - start) / width
+    for (let x = 0; x < width; x++) {
+      const a = start + x * pixelSeconds
+      const inside = a >= 0 && a < SECONDS
+      for (let y = 0; y < 4; y++) expect(pixel(out, width, x, y)[3]).toBe(inside ? 255 : 0)
+    }
+  }
+
+  test('with an empty cache every pixel column inside the Source is drawn, from the overview', () => {
+    const { out } = renderTiles(128, [], flat, SECONDS, -5, 65, 700)
+    expectNoGaps(out, 700, -5, 65)
+    expect(pixel(out, 700, 100, 0)).toEqual(color(30))
+  })
+
+  test('with a partly filled cache there are no gaps and ready tiles show their own data', () => {
+    const t1 = makeTile(128, 1, samples, () => 90)
+    const { out } = renderTiles(128, [t1], flat, SECONDS, -5, 65, 700)
+    expectNoGaps(out, 700, -5, 65)
+    expect(pixel(out, 700, 89, 1)).toEqual(color(30)) // 3.9 s: tile 0 missing, overview
+    expect(pixel(out, 700, 100, 1)).toEqual(color(90)) // 5.0 s: tile 1 (4 to 8 s)
+  })
+
+  test('lower-level tiles stand in for whole tiles, with no gaps', () => {
+    const t64 = makeTile(64, 0, samples, () => 120) // 0 to 8 s
+    const t32 = makeTile(32, 1, samples, () => 160) // 16 to 32 s
+    const { out } = renderTiles(128, [t64, t32], flat, SECONDS, -5, 65, 700)
+    expectNoGaps(out, 700, -5, 65)
+    expect(pixel(out, 700, 80, 0)).toEqual(color(120)) // 3 s
+    expect(pixel(out, 700, 125, 0)).toEqual(color(120)) // 7.5 s
+    expect(pixel(out, 700, 135, 0)).toEqual(color(30)) // 8.5 s: no tile covers it, overview
+  })
+
+  test('at the 32 level a pixel shows the maximum of the columns it covers', () => {
+    // Column 40 spans 1.25 to 1.28125 s. 100 pixels over 10 s: a pixel is 0.1 s (3.2 columns).
+    const t0 = makeTile(32, 0, samples, (c) => (c === 40 ? 200 : 10))
+    const { out } = renderTiles(32, [t0], flat, SECONDS, 0, 10, 100)
+    expect(pixel(out, 100, 12, 2)).toEqual(color(200)) // 1.2 to 1.3 s
+    expect(pixel(out, 100, 11, 2)).toEqual(color(10))
+    expect(pixel(out, 100, 13, 2)).toEqual(color(10))
+  })
+
+  test('stretched above the 128 level, a pixel is the column under its centre', () => {
+    const t0 = makeTile(128, 0, samples, (c) => (c % 2 === 0 ? 50 : 200))
+    // 400 pixels over 1 s: a column (1/128 s) is 3.125 pixels wide.
+    const { out } = renderTiles(128, [t0], flat, SECONDS, 0, 1, 400)
+    // Centres of pixels 0, 2, 3, 5, 6, 9 are at columns 0, 0, 1, 1, 2, 2...
+    expect(pixel(out, 400, 0, 1)).toEqual(color(50))
+    expect(pixel(out, 400, 2, 1)).toEqual(color(50)) // 0.8
+    expect(pixel(out, 400, 3, 1)).toEqual(color(200)) // 1.12
+    expect(pixel(out, 400, 5, 1)).toEqual(color(200)) // 1.76
+    expect(pixel(out, 400, 6, 1)).toEqual(color(50)) // 2.08
+  })
+
+  test('a bright first column of a tile shows when the pixel centre is in the previous tile', () => {
+    const t0 = makeTile(128, 0, samples, () => 10)
+    const t1 = makeTile(128, 1, samples, (c) => (c === 512 ? 220 : 10))
+    // One pixel over 3.985 to 4.005 s: centre 3.995 s (tile 0), touching columns 510 to 512.
+    const both = renderTiles(128, [t0, t1], flat, SECONDS, 3.985, 4.005, 1, 2)
+    expect(pixel(both.out, 1, 0, 0)).toEqual(color(220))
+    // Next tile not ready: that column is skipped, the pixel is still drawn.
+    const only0 = renderTiles(128, [t0], flat, SECONDS, 3.985, 4.005, 1, 2)
+    expect(pixel(only0.out, 1, 0, 0)).toEqual(color(10))
+  })
+
+  test('the partial last tile and the Source end: the last pixel column is drawn', () => {
+    const seconds = 75.000125
+    const count = 600001
+    const rate = 8000
+    const last = {
+      ...makeTile(128, 18, 1, () => 77),
+      columns: tileColumns(columnCount(count, rate, 128), 18),
+    }
+    const data = new Uint8Array(last.columns * SPECTROGRAM_ROWS).fill(77)
+    const resolved = resolveSpectrogram({
+      level: 128,
+      startTime: 74,
+      endTime: 76,
+      kind: 'Total',
+      sampleCount: count,
+      sampleRate: rate,
+      lookup: lookupOf([{ ...last, data }]),
+    })
+    const out = new Uint8ClampedArray(20 * 2 * 4)
+    renderResolvedPixels(
+      resolved,
+      overviewOf(751, () => 5),
+      table,
+      { startTime: 74, endTime: 76 },
+      seconds,
+      20,
+      2,
+      out,
+    )
+    for (let x = 0; x < 20; x++) {
+      const inside = 74 + x * 0.1 < seconds
+      expect(pixel(out, 20, x, 0)[3]).toBe(inside ? 255 : 0)
+    }
+    expect(pixel(out, 20, 9, 0)).toEqual(color(77)) // 74.9 s, the last pixel starting inside
+  })
+
+  describe('work per frame', () => {
+    const WIDTH = 3000
+    const HEIGHT = 8
+
+    /** Every tile of every level exists (blank data), made on demand. */
+    function allTiles(sampleCount: number, levels: readonly DetailLevel[]) {
+      const made = new Map<string, DetailTile>()
+      return (key: TileKey) => {
+        if (!levels.includes(key.level)) return undefined
+        const n = tileCount(columnCount(sampleCount, RATE, key.level))
+        if (key.index >= n) return undefined
+        const id = tileKey(key)
+        let tile = made.get(id)
+        if (tile === undefined) {
+          tile = makeTile(key.level, key.index, sampleCount, (c, r) => (c * 7 + r) & 255)
+          made.set(id, tile)
+        }
+        return tile
+      }
+    }
+
+    function reads(
+      seconds: number,
+      level: 'overview' | DetailLevel,
+      pixelSeconds: number,
+      levels: readonly DetailLevel[],
+      start = 20,
+    ): number {
+      const sampleCount = Math.round(seconds * RATE)
+      const end = start + pixelSeconds * WIDTH
+      const resolved = resolveSpectrogram({
+        level,
+        startTime: start,
+        endTime: end,
+        kind: 'Total',
+        sampleCount,
+        sampleRate: RATE,
+        lookup: allTiles(sampleCount, levels),
+      })
+      const out = new Uint8ClampedArray(WIDTH * HEIGHT * 4)
+      return renderResolvedPixels(
+        resolved,
+        overviewOf(Math.ceil(seconds * 10), (c, r) => (c + r) & 255),
+        table,
+        { startTime: start, endTime: end },
+        seconds,
+        WIDTH,
+        HEIGHT,
+        out,
+      )
+    }
+
+    const BOUND = 5 * WIDTH * SPECTROGRAM_ROWS
+    // Pixel intervals just above each level's threshold (levels switch at 10, 32, 64 px/s) and at max zoom.
+    const cases: [DetailLevel, number][] = [
+      [32, 0.099],
+      [64, 0.031],
+      [128, 0.0155],
+      [128, 0.0005],
+    ]
+
+    for (const [level, pixelSeconds] of cases) {
+      test(`level ${level} at ${pixelSeconds} s per pixel: within 5 columns per pixel column, whatever the duration`, () => {
+        const lower = [32, 64, 128].filter((l) => l <= level) as DetailLevel[]
+        const cached = reads(1800, level, pixelSeconds, lower)
+        const standIns = reads(
+          1800,
+          level,
+          pixelSeconds,
+          lower.filter((l) => l < level),
+        )
+        const short = reads(400, level, pixelSeconds, lower)
+        for (const n of [cached, standIns]) {
+          expect(n).toBeGreaterThan(0)
+          expect(n).toBeLessThanOrEqual(BOUND)
+        }
+        expect(short).toBe(cached)
+      })
+    }
+
+    test('one pixel column at the widest 32-level pixel, straddling a tile boundary, reads at most 5 columns', () => {
+      // A canvas 1 device pixel wide over 0.099 s (just above 10 px/s, 3.168 columns), centred on
+      // the 16 s boundary between tiles 0 and 1 of the 32 level.
+      const t0 = makeTile(32, 0, samples, (c, r) => (c * 7 + r) & 255)
+      const t1 = makeTile(32, 1, samples, (c, r) => (c * 7 + r) & 255)
+      const cases = {
+        'both tiles': [t0, t1],
+        'one tile, the other from the overview': [t0],
+        none: [],
+      }
+      for (const [name, tiles] of Object.entries(cases)) {
+        const { reads } = renderTiles(32, tiles, flat, SECONDS, 15.9505, 16.0495, 1)
+        expect(reads, name).toBeGreaterThan(0)
+        expect(reads, name).toBeLessThanOrEqual(5 * SPECTROGRAM_ROWS)
+      }
+    })
+
+    test('the overview level is bounded the same way', () => {
+      expect(reads(1800, 'overview', 0.6, [])).toBeLessThanOrEqual(3 * WIDTH * SPECTROGRAM_ROWS)
+      expect(reads(60, 'overview', 0.6, [])).toBeLessThanOrEqual(3 * WIDTH * SPECTROGRAM_ROWS)
+    })
   })
 })

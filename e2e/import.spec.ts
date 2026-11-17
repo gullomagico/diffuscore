@@ -1,16 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Locator } from '@playwright/test'
-import { makeWav } from '../src/audio/testing/fixtures.ts'
-
-function wav(
-  name: string,
-  channels: number,
-  seconds: number,
-  options: { sampleRate?: number; amplitude?: number; ramp?: boolean } = {},
-) {
-  const bytes = makeWav({ channels, sampleRate: 44100, seconds, ...options })
-  return { name, mimeType: 'audio/wav', buffer: Buffer.from(bytes) }
-}
+import { canvasHash, spectrogramHasSignal, wav } from './helpers.ts'
 
 test('imports a stereo WAV, then refuses a 3-channel one', async ({ page }) => {
   await page.goto('/')
@@ -166,33 +156,6 @@ function pixelHash(canvas: Locator) {
   })
 }
 
-function canvasHash(canvas: Locator) {
-  return canvas.evaluate((element) => {
-    const { width, height } = element as HTMLCanvasElement
-    const data = (element as HTMLCanvasElement)
-      .getContext('2d')!
-      .getImageData(0, 0, width, height).data
-    let hash = 0
-    for (let i = 3; i < data.length; i += 4) hash = (hash * 31 + data[i]!) | 0
-    return hash
-  })
-}
-
-/** True once the spectrogram has drawn pixels that are neither transparent nor the table's floor colour. */
-function spectrogramHasSignal(canvas: Locator) {
-  return canvas.evaluate((element) => {
-    const { width, height } = element as HTMLCanvasElement
-    const data = (element as HTMLCanvasElement)
-      .getContext('2d')!
-      .getImageData(0, 0, width, height).data
-    // The floor of the colour table is #000004: its brightest channel is 4.
-    for (let i = 0; i < data.length; i += 4) {
-      if (data[i + 3] !== 0 && Math.max(data[i]!, data[i + 1]!, data[i + 2]!) > 40) return true
-    }
-    return false
-  })
-}
-
 test('the Timeline draws a ruler and a Mirrored waveform that are not blank', async ({ page }) => {
   await page.goto('/')
   await page.getByLabel('Audio file').setInputFiles(wav('loud.wav', 2, 2, { amplitude: 20000 }))
@@ -315,6 +278,8 @@ test('the View menu toggles the light theme, and the Lane looks the same in both
   const spectrogram = page.getByRole('img', { name: 'Total spectrogram' })
   await expect.poll(async () => (await inkAwayFromZeroLine(waveform)).above).toBeGreaterThan(0)
   await expect.poll(() => spectrogramHasSignal(spectrogram)).toBe(true)
+  // A detail tile arriving later would change the baseline.
+  await expect(spectrogram).toHaveAttribute('data-detail', 'ready')
   const lane = async () => [await pixelHash(waveform), await pixelHash(spectrogram)]
   const dark = await lane()
 
@@ -380,6 +345,7 @@ test('the View menu chooses the waveform style and the Mirrored waveform is redr
   const peakRms = await canvasHash(waveform)
   const spectrogram = page.getByRole('img', { name: 'Total spectrogram' })
   await expect.poll(() => spectrogramHasSignal(spectrogram)).toBe(true)
+  await expect(spectrogram).toHaveAttribute('data-detail', 'ready')
   const spectrogramBefore = await pixelHash(spectrogram)
   const framesBefore = await frames()
   expect(framesBefore).toBeGreaterThan(0)
