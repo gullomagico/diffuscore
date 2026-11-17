@@ -56,8 +56,9 @@ test('a long Source shows the overview at fit, then detail when zoomed in and sc
   await expect(spectrogram).toHaveAttribute('data-detail', 'ready')
   expect(await spectrogramHasSignal(spectrogram)).toBe(true)
 
-  // More than one 4 s tile at 128 columns per second: 12 steps of 10% of 5 s.
-  for (let i = 0; i < 12; i++) await page.keyboard.press('ArrowRight')
+  // At max zoom the view is [72.5, 77.5) s: tiles 18 and 19 of the 128 level (4 s each), with 17
+  // and 20 ahead. 20 steps of 10% of 5 s move it to [82.5, 87.5), so tile 21 was never wanted before.
+  for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowRight')
   await settleFrames(page)
   await expect(spectrogram).toHaveAttribute('data-detail', 'ready')
   expect(await spectrogramHasSignal(spectrogram)).toBe(true)
