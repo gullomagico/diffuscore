@@ -23,6 +23,10 @@ test('imports a stereo WAV, then refuses a 3-channel one', async ({ page }) => {
   await expect(page.getByRole('region', { name: 'Timeline' })).toBeVisible()
   await expect(page.getByRole('img', { name: 'Time ruler' })).toBeVisible()
   await expect(page.getByRole('img', { name: 'Mirrored waveform: R above, L below' })).toBeVisible()
+  // The fixture is a 440 Hz sine: the Total spectrogram has a bright band.
+  const spectrogram = page.getByRole('img', { name: 'Total spectrogram' })
+  await expect(spectrogram).toBeVisible()
+  await expect.poll(() => spectrogramHasSignal(spectrogram)).toBe(true)
 
   // Reload so the error shows in the empty state, not as a banner over a loaded Source.
   await page.reload()
@@ -149,6 +153,19 @@ function inkAwayFromZeroLine(canvas: Locator) {
   })
 }
 
+/** Hash of every channel of every pixel: unlike canvasHash, sees colour changes. */
+function pixelHash(canvas: Locator) {
+  return canvas.evaluate((element) => {
+    const { width, height } = element as HTMLCanvasElement
+    const data = (element as HTMLCanvasElement)
+      .getContext('2d')!
+      .getImageData(0, 0, width, height).data
+    let hash = 0
+    for (let i = 0; i < data.length; i++) hash = (hash * 31 + data[i]!) | 0
+    return hash
+  })
+}
+
 function canvasHash(canvas: Locator) {
   return canvas.evaluate((element) => {
     const { width, height } = element as HTMLCanvasElement
@@ -158,6 +175,21 @@ function canvasHash(canvas: Locator) {
     let hash = 0
     for (let i = 3; i < data.length; i += 4) hash = (hash * 31 + data[i]!) | 0
     return hash
+  })
+}
+
+/** True once the spectrogram has drawn pixels that are neither transparent nor the table's floor colour. */
+function spectrogramHasSignal(canvas: Locator) {
+  return canvas.evaluate((element) => {
+    const { width, height } = element as HTMLCanvasElement
+    const data = (element as HTMLCanvasElement)
+      .getContext('2d')!
+      .getImageData(0, 0, width, height).data
+    // The floor of the colour table is #000004: its brightest channel is 4.
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] !== 0 && Math.max(data[i]!, data[i + 1]!, data[i + 2]!) > 40) return true
+    }
+    return false
   })
 }
 
@@ -204,6 +236,7 @@ test('a mono Source gets a Mono Mirrored waveform', async ({ page }) => {
   await page.goto('/')
   await page.getByLabel('Audio file').setInputFiles(wav('mono.wav', 1, 1))
   await expect(page.getByRole('img', { name: 'Mirrored waveform: Mono' })).toBeVisible()
+  await expect(page.getByRole('img', { name: 'Mono spectrogram' })).toBeVisible()
   await expect(page.getByRole('img', { name: 'Time ruler' })).toBeVisible()
 })
 
@@ -273,40 +306,50 @@ test('zooming with the keyboard redraws the Mirrored waveform', async ({ page })
   await expect.poll(() => canvasHash(waveform)).toBe(before)
 })
 
-test('the View menu toggles the light theme and the Mirrored waveform is redrawn in it', async ({
+test('the View menu toggles the light theme, and the Lane looks the same in both themes', async ({
   page,
 }) => {
   await page.goto('/')
   await page.getByLabel('Audio file').setInputFiles(wav('loud.wav', 2, 2, { amplitude: 20000 }))
   const waveform = page.getByRole('img', { name: 'Mirrored waveform: R above, L below' })
+  const spectrogram = page.getByRole('img', { name: 'Total spectrogram' })
   await expect.poll(async () => (await inkAwayFromZeroLine(waveform)).above).toBeGreaterThan(0)
-  /** Sum of the red channel: the waveform's colour differs between the themes. */
-  const red = () =>
-    waveform.evaluate((element) => {
-      const { width, height } = element as HTMLCanvasElement
-      const data = (element as HTMLCanvasElement)
-        .getContext('2d')!
-        .getImageData(0, 0, width, height).data
-      let sum = 0
-      for (let i = 0; i < data.length; i += 4) sum += data[i]!
-      return sum
-    })
-  const dark = await red()
+  await expect.poll(() => spectrogramHasSignal(spectrogram)).toBe(true)
+  const lane = async () => [await pixelHash(waveform), await pixelHash(spectrogram)]
+  const dark = await lane()
 
   await page.getByRole('menuitem', { name: 'View' }).click()
   await page.getByRole('menuitem', { name: 'Toggle Light/Dark Theme' }).click()
   await expect(page.locator('html')).not.toHaveClass(/dark/)
-  await expect.poll(red).not.toBe(dark)
+  // The chrome follows the theme. Let the redraw it triggers settle, then compare.
+  await page.waitForTimeout(300)
+  expect(await lane()).toEqual(dark)
 
   await page.getByRole('menuitem', { name: 'View' }).click()
   await page.getByRole('menuitem', { name: 'Toggle Light/Dark Theme' }).click()
   await expect(page.locator('html')).toHaveClass(/dark/)
-  await expect.poll(red).toBe(dark)
+  await page.waitForTimeout(300)
+  expect(await lane()).toEqual(dark)
 })
 
 test('the View menu chooses the waveform style and the Mirrored waveform is redrawn in it', async ({
   page,
 }) => {
+  // Only the spectrogram renderer calls putImageData: count its frames.
+  await page.addInitScript(() => {
+    const counter = window as unknown as { spectrogramFrames: number }
+    counter.spectrogramFrames = 0
+    // oxlint-disable-next-line typescript/unbound-method -- re-bound with apply() below
+    const put = CanvasRenderingContext2D.prototype.putImageData
+    CanvasRenderingContext2D.prototype.putImageData = function (
+      ...args: [ImageData, number, number]
+    ) {
+      counter.spectrogramFrames++
+      return put.apply(this, args as unknown as Parameters<typeof put>)
+    }
+  })
+  const frames = () =>
+    page.evaluate(() => (window as unknown as { spectrogramFrames: number }).spectrogramFrames)
   await page.goto('/')
   // A rising level, so the peak envelope and its moving average are not the same picture.
   await page
@@ -335,6 +378,11 @@ test('the View menu chooses the waveform style and the Mirrored waveform is redr
   await page.keyboard.press('Escape')
   await page.keyboard.press('Escape')
   const peakRms = await canvasHash(waveform)
+  const spectrogram = page.getByRole('img', { name: 'Total spectrogram' })
+  await expect.poll(() => spectrogramHasSignal(spectrogram)).toBe(true)
+  const spectrogramBefore = await pixelHash(spectrogram)
+  const framesBefore = await frames()
+  expect(framesBefore).toBeGreaterThan(0)
 
   // Each style draws a different picture (the hash covers alpha: faint and solid layers differ).
   let previous = peakRms
@@ -343,6 +391,10 @@ test('the View menu chooses the waveform style and the Mirrored waveform is redr
     await expect.poll(() => canvasHash(waveform)).not.toBe(previous)
     previous = await canvasHash(waveform)
   }
+
+  // The spectrogram does not depend on the waveform style.
+  expect(await pixelHash(spectrogram)).toBe(spectrogramBefore)
+  expect(await frames()).toBe(framesBefore)
 
   await chooseStyle('Peak + RMS')
   await expect.poll(() => canvasHash(waveform)).toBe(peakRms)

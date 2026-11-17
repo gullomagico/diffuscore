@@ -1,12 +1,11 @@
 import { describe, expect, test } from 'vite-plus/test'
 import { makeFlacHeader, makeWav } from '@/audio/testing/fixtures'
 import { createAnalysisStore } from './analysis'
-import type { Analyze, AnalyzeOptions } from './analysis'
+import type { Analyze, AnalyzeOptions, SourceAnalysisResult } from './analysis'
 import { createImporter, MAX_FILE_BYTES } from './import'
 import type { ImportDeps, ImportState } from './import'
 import { createSourceStore } from './source'
 import type { DecodedAudio, Source, SourceStore } from './source'
-import type { SourcePeaks } from '@/timeline/peaks'
 
 interface Deferred<T> {
   promise: Promise<T>
@@ -65,7 +64,10 @@ function fakeFile(size: number, calls: string[]): File {
   } as unknown as File
 }
 
-const noPeaks: SourcePeaks = { pyramids: [] }
+const noPeaks: SourceAnalysisResult = {
+  peaks: { pyramids: [] },
+  spectrograms: { channels: [], total: null },
+}
 
 /** The analysis deps for importers built by hand: analysis resolves immediately. */
 function analysisDeps(source: SourceStore) {
@@ -101,13 +103,13 @@ function setup(
   const analyses: {
     source: Source
     options: AnalyzeOptions
-    result: Deferred<SourcePeaks>
+    result: Deferred<SourceAnalysisResult>
   }[] = []
   const analysis = createAnalysisStore(source)
   const deps: ImportDeps = {
     analyze: (src, analyzeOptions) => {
       if (!options.manualAnalysis) return Promise.resolve(noPeaks)
-      const result = deferred<SourcePeaks>()
+      const result = deferred<SourceAnalysisResult>()
       analyses.push({ source: src, options: analyzeOptions, result })
       return result.promise
     },
@@ -137,7 +139,7 @@ function setup(
   }
   const analyze = {
     last: () => analyses.at(-1)!,
-    resolve: (peaks: SourcePeaks) => analyses.at(-1)!.result.resolve(peaks),
+    resolve: (result: SourceAnalysisResult) => analyses.at(-1)!.result.resolve(result),
     reject: (reason?: unknown) => analyses.at(-1)!.result.reject(reason),
   }
   return { calls, source, analysis, importer, probe, decode, analyze }
@@ -577,8 +579,9 @@ describe('cancel', () => {
 
 describe('analyzing', () => {
   const tick = () => new Promise((r) => setTimeout(r))
-  const peaksOf = (length: number): SourcePeaks => ({
-    pyramids: [{ length, levels: [] }],
+  const peaksOf = (length: number): SourceAnalysisResult => ({
+    peaks: { pyramids: [{ length, levels: [] }] },
+    spectrograms: { channels: [{ levels: [] }], total: null },
   })
 
   /** Runs an import up to the point where analysis is pending. */
@@ -650,7 +653,8 @@ describe('analyzing', () => {
 
     expect(t.importer.getSnapshot()).toEqual({ status: 'idle' })
     expect(t.analysis.getSnapshot()?.source).toBe(t.source.getSnapshot())
-    expect(t.analysis.getSnapshot()?.peaks).toBe(p)
+    expect(t.analysis.getSnapshot()?.peaks).toBe(p.peaks)
+    expect(t.analysis.getSnapshot()?.spectrograms).toBe(p.spectrograms)
   })
 
   test('the analysis is already published when the state becomes idle', async () => {
@@ -696,6 +700,55 @@ describe('analyzing', () => {
     expect(t.importer.getSnapshot()).toEqual({ status: 'idle' })
     t.analyze.resolve(peaksOf(3))
     await done
+  })
+
+  test('progress across the peaks and spectrogram phases is monotonic and ends at 1', async () => {
+    const t = setup({ duration: 10, manualAnalysis: true })
+    const seen: number[] = []
+    t.importer.subscribe(() => {
+      const state = t.importer.getSnapshot()
+      if (state.status === 'loading' && state.progress !== null) seen.push(state.progress)
+    })
+    const done = t.importer.importFiles([wavFile()])
+    await tick()
+    t.decode.resolve(stereo())
+    await tick()
+    for (const fraction of [0.05, 0.1, 0.4, 0.95, 1]) t.analyze.last().options.onProgress(fraction)
+    expect(seen).toEqual([0, 0.05, 0.1, 0.4, 0.95, 1])
+    t.analyze.resolve(peaksOf(1))
+    await done
+    expect(t.importer.getSnapshot()).toEqual({ status: 'idle' })
+  })
+
+  test('cancel during the spectrogram phase aborts and leaves no Source and no analysis', async () => {
+    const { t, done } = await analyzing()
+    t.analyze.last().options.onProgress(0.1)
+    t.analyze.last().options.onProgress(0.6)
+    t.importer.cancel()
+
+    expect(t.analyze.last().options.signal.aborted).toBe(true)
+    expect(t.importer.getSnapshot()).toEqual({ status: 'idle' })
+    expect(t.source.getSnapshot()).toBeNull()
+
+    t.analyze.reject(new DOMException('Aborted', 'AbortError'))
+    await done
+    expect(t.importer.getSnapshot()).toEqual({ status: 'idle' })
+    expect(t.source.getSnapshot()).toBeNull()
+    expect(t.analysis.getSnapshot()).toBeNull()
+  })
+
+  test('a failure during the spectrogram phase reports an error and leaves no Source', async () => {
+    const { t, done } = await analyzing()
+    t.analyze.last().options.onProgress(0.6)
+    t.analyze.reject(new Error('spectrogram failed'))
+    await done
+
+    expect(errorOf(t.importer.getSnapshot())).toEqual({
+      kind: 'analysis-failed',
+      message: 'This Source could not be analyzed.',
+    })
+    expect(t.source.getSnapshot()).toBeNull()
+    expect(t.analysis.getSnapshot()).toBeNull()
   })
 
   test('a failed analysis reports an error and leaves no Source', async () => {

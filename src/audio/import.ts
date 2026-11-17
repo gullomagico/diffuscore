@@ -46,7 +46,7 @@ export interface ImportDeps {
   /** Asks the user to confirm discarding the current Source. */
   confirmReplace(): boolean | Promise<boolean>
   source: SourceStore
-  /** Builds the peak data of the loaded Source. */
+  /** Builds the peaks and overview spectrograms of the loaded Source. */
   analyze: Analyze
   /** Receives the analysis once it is complete. */
   analysis: AnalysisStore
@@ -182,10 +182,10 @@ export function createImporter(deps: ImportDeps): Importer {
       if (deps.source.getSnapshot() !== source) controller.abort()
     })
     try {
-      const peaks = await deps.analyze(source, { onProgress, signal: controller.signal })
+      const result = await deps.analyze(source, { onProgress, signal: controller.signal })
       if (!isCurrent()) return null
       // Published before the overlay goes away, so there is never a moment with neither.
-      deps.analysis.publish(source, peaks)
+      deps.analysis.publish(source, result)
     } catch {
       if (!isCurrent() || controller.signal.aborted) return null
       if (deps.source.getSnapshot() === source) deps.source.release()

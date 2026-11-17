@@ -9,6 +9,7 @@ import {
   smoothingRadiusColumns,
 } from './mirrored-waveform'
 import { buildPeakPyramid } from './peaks'
+import { buildSourceSpectrograms } from './spectrogram'
 import { createViewport } from './viewport'
 
 const RATE = 8000
@@ -25,7 +26,11 @@ function analysisOf(
     return data
   })
   const source: Source = { fileName: 'test.wav', channels, sampleRate: RATE, duration: seconds }
-  return { source, peaks: { pyramids: channels.map((c) => buildPeakPyramid(c, RATE)) } }
+  return {
+    source,
+    peaks: { pyramids: channels.map((c) => buildPeakPyramid(c, RATE)) },
+    spectrograms: buildSourceSpectrograms(channels, RATE),
+  }
 }
 
 function viewportOf(duration: number, width: number) {

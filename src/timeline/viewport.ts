@@ -114,3 +114,14 @@ export function createViewport(duration: number): Viewport {
     },
   }
 }
+
+/** The time range a canvas of deviceWidth device pixels shows: from the left edge, at the current zoom. */
+export function visibleTimeRange(
+  viewport: ViewportSnapshot,
+  deviceWidth: number,
+  devicePixelRatio: number,
+): { startTime: number; endTime: number } {
+  const devicePixelsPerSecond = viewport.pixelsPerSecond * devicePixelRatio
+  const seconds = devicePixelsPerSecond > 0 ? deviceWidth / devicePixelsPerSecond : 0
+  return { startTime: viewport.startTime, endTime: viewport.startTime + seconds }
+}

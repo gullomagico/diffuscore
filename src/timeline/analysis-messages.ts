@@ -1,4 +1,4 @@
-import type { SourcePeaks } from './peaks'
+import type { SourceAnalysisResult } from '@/audio/analysis'
 
 /** Main thread -> analysis worker. The channels are shared memory: nothing is copied. */
 export interface AnalysisRequest {
@@ -9,4 +9,4 @@ export interface AnalysisRequest {
 /** Analysis worker -> main thread. */
 export type AnalysisMessage =
   | { readonly type: 'progress'; readonly fraction: number }
-  | { readonly type: 'done'; readonly peaks: SourcePeaks }
+  | { readonly type: 'done'; readonly result: SourceAnalysisResult }

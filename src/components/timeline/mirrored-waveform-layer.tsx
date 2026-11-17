@@ -8,19 +8,26 @@ import {
   smoothingRadiusColumns,
 } from '@/timeline/mirrored-waveform'
 import type { MirroredColumns } from '@/timeline/mirrored-waveform'
+import {
+  CHANNEL_LABEL_FONT_PX,
+  CHANNEL_LABEL_INSET_PX,
+  LANE_TEXT_COLOR,
+  WAVEFORM_COLOR_L,
+  WAVEFORM_COLOR_MONO,
+  WAVEFORM_COLOR_R,
+} from '@/timeline/lane-look'
 import type { Viewport } from '@/timeline/viewport'
 import { waveformStyleStore } from '@/timeline/waveform-style'
 import { useCanvasLayer } from './use-canvas-layer'
 import type { CanvasFrame } from './use-canvas-layer'
 
-const LABEL_FONT_PX = 11
-const LABEL_INSET_PX = 6
 /** The peak envelope behind the RMS in the Peak + RMS style. */
 const FAINT_PEAK_ALPHA = 0.35
-/** The Lane is redrawn when the waveform style changes. */
+/** The layer is redrawn when the waveform style changes. */
 const STYLE_SUBSCRIPTIONS = [(listener: () => void) => waveformStyleStore.subscribe(listener)]
 
-export function MirroredWaveformLane({
+/** The top canvas of the Overlay Lane: transparent, so the spectrogram shows through. */
+export function MirroredWaveformLayer({
   analysis,
   viewport,
 }: {
@@ -50,7 +57,7 @@ export function MirroredWaveformLane({
         readMirroredColumns(analysis, frame.viewport, ratio, columns)
       }
 
-      const style = getComputedStyle(context.canvas)
+      const fontFamily = getComputedStyle(context.canvas).fontFamily
       const mid = Math.floor(height / 2)
       const upReach = mid
       const downReach = height - mid
@@ -59,8 +66,8 @@ export function MirroredWaveformLane({
       const inside = columnsInsideSource(analysis, frame.viewport, ratio, width)
 
       // Mono is one colour. Stereo gives each Channel its own, so the halves read apart at a glance.
-      const upColor = style.getPropertyValue(stereo ? '--waveform-r' : '--waveform')
-      const downColor = style.getPropertyValue(stereo ? '--waveform-l' : '--waveform')
+      const upColor = stereo ? WAVEFORM_COLOR_R : WAVEFORM_COLOR_MONO
+      const downColor = stereo ? WAVEFORM_COLOR_L : WAVEFORM_COLOR_MONO
       /** One layer of the envelope. Only the solid layer keeps a thin line at the zero line. */
       const drawLayer = (ups: Float32Array, downs: Float32Array, alpha: number) => {
         context.globalAlpha = alpha
@@ -88,9 +95,9 @@ export function MirroredWaveformLane({
       }
 
       // The Channel labels double as the colour legend.
-      context.font = `${LABEL_FONT_PX * ratio}px ${style.fontFamily}`
+      context.font = `${CHANNEL_LABEL_FONT_PX * ratio}px ${fontFamily}`
       context.textBaseline = 'top'
-      const inset = LABEL_INSET_PX * ratio
+      const inset = CHANNEL_LABEL_INSET_PX * ratio
       if (stereo) {
         context.fillStyle = upColor
         context.fillText('R', inset, inset)
@@ -99,7 +106,7 @@ export function MirroredWaveformLane({
         context.textBaseline = 'bottom'
         context.fillText('L', inset, height - inset)
       } else {
-        context.fillStyle = style.getPropertyValue('--muted-foreground')
+        context.fillStyle = LANE_TEXT_COLOR
         context.fillText('Mono', inset, inset)
       }
     },
@@ -111,7 +118,7 @@ export function MirroredWaveformLane({
       ref={canvasRef}
       role="img"
       aria-label={stereo ? 'Mirrored waveform: R above, L below' : 'Mirrored waveform: Mono'}
-      className="block min-h-0 w-full flex-1"
+      className="absolute inset-0 block h-full w-full"
     />
   )
 }

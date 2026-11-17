@@ -1,14 +1,13 @@
-import type { Analyze } from '@/audio/analysis'
+import type { Analyze, SourceAnalysisResult } from '@/audio/analysis'
 import type { AnalysisMessage, AnalysisRequest } from './analysis-messages'
-import type { SourcePeaks } from './peaks'
 
 function abortReason(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException('The analysis was aborted', 'AbortError')
 }
 
-/** Builds the peak pyramids in a worker. The worker is terminated whatever the outcome. */
+/** Builds the peaks and spectrograms in a worker. The worker is terminated whatever the outcome. */
 export const analyzeInWorker: Analyze = (source, options) =>
-  new Promise<SourcePeaks>((resolve, reject) => {
+  new Promise<SourceAnalysisResult>((resolve, reject) => {
     const { signal } = options
     if (signal.aborted) {
       reject(abortReason(signal))
@@ -27,7 +26,7 @@ export const analyzeInWorker: Analyze = (source, options) =>
     function onMessage(event: MessageEvent<AnalysisMessage>): void {
       const message = event.data
       if (message.type === 'progress') options.onProgress(message.fraction)
-      else settle(() => resolve(message.peaks))
+      else settle(() => resolve(message.result))
     }
     function onError(event: ErrorEvent): void {
       settle(() => reject(new Error(event.message || 'The analysis worker failed')))
