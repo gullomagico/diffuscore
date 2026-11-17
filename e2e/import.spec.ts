@@ -315,6 +315,8 @@ test('the View menu toggles the light theme, and the Lane looks the same in both
   const spectrogram = page.getByRole('img', { name: 'Total spectrogram' })
   await expect.poll(async () => (await inkAwayFromZeroLine(waveform)).above).toBeGreaterThan(0)
   await expect.poll(() => spectrogramHasSignal(spectrogram)).toBe(true)
+  // A detail tile arriving later would change the baseline.
+  await expect(spectrogram).toHaveAttribute('data-detail', 'ready')
   const lane = async () => [await pixelHash(waveform), await pixelHash(spectrogram)]
   const dark = await lane()
 
@@ -380,6 +382,7 @@ test('the View menu chooses the waveform style and the Mirrored waveform is redr
   const peakRms = await canvasHash(waveform)
   const spectrogram = page.getByRole('img', { name: 'Total spectrogram' })
   await expect.poll(() => spectrogramHasSignal(spectrogram)).toBe(true)
+  await expect(spectrogram).toHaveAttribute('data-detail', 'ready')
   const spectrogramBefore = await pixelHash(spectrogram)
   const framesBefore = await frames()
   expect(framesBefore).toBeGreaterThan(0)

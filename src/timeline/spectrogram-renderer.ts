@@ -9,6 +9,8 @@
 
 import { SPECTROGRAM_COLOR_STOPS, SPECTROGRAM_STRETCH } from './lane-look'
 import { SPECTROGRAM_ROWS } from './frequency-axis'
+import { TILE_COLUMNS } from './detail-tile'
+import type { ResolvedSpectrogram } from './tile-resolver'
 import type { SpectrogramOverview } from './spectrogram'
 
 /** 256 RGBA entries (1024 bytes): index = quantised dB 0..255. */
@@ -89,6 +91,30 @@ function prepareRows(scratch: SpectrogramScratch, height: number): void {
   }
 }
 
+/** Maps a pixel column's per-row maxima (scratch.columnMax) onto the pixel rows and colours them. */
+function paintColumn(
+  out: Uint8ClampedArray,
+  width: number,
+  height: number,
+  x: number,
+  scratch: SpectrogramScratch,
+  table: ColorTable,
+): void {
+  const { columnMax, rowFirst, rowLast } = scratch
+  for (let y = 0; y < height; y++) {
+    let m = columnMax[rowFirst[y]!]!
+    for (let r = rowFirst[y]! + 1, end = rowLast[y]!; r <= end; r++) {
+      if (columnMax[r]! > m) m = columnMax[r]!
+    }
+    const o = (y * width + x) * 4
+    const t = m * 4
+    out[o] = table[t]!
+    out[o + 1] = table[t + 1]!
+    out[o + 2] = table[t + 2]!
+    out[o + 3] = table[t + 3]!
+  }
+}
+
 /**
  * Pure: fills `out` (width x height x 4 RGBA, row-major, top pixel row = highest frequency) with the
  * overview over `range` and returns the number of overview cells read (the work of the frame).
@@ -120,7 +146,7 @@ export function renderSpectrogramPixels(
   while (k + 1 < levels.length && levels[k + 1]!.columnsPerSecond * pixelSeconds >= 1 - 1e-9) k++
   const level = levels[k]!
   const columnSeconds = 1 / level.columnsPerSecond
-  const { columnMax, rowFirst, rowLast } = scratch
+  const { columnMax } = scratch
   let reads = 0
 
   for (let x = 0; x < width; x++) {
@@ -149,26 +175,135 @@ export function renderSpectrogramPixels(
     }
     reads += (c1 - c0 + 1) * SPECTROGRAM_ROWS
 
-    for (let y = 0; y < height; y++) {
-      let m = columnMax[rowFirst[y]!]!
-      for (let r = rowFirst[y]! + 1, end = rowLast[y]!; r <= end; r++) {
-        if (columnMax[r]! > m) m = columnMax[r]!
-      }
-      const o = (y * width + x) * 4
-      const t = m * 4
-      out[o] = table[t]!
-      out[o + 1] = table[t + 1]!
-      out[o + 2] = table[t + 2]!
-      out[o + 3] = table[t + 3]!
+    paintColumn(out, width, height, x, scratch, table)
+  }
+  return reads
+}
+
+/** The most columns one pixel column reads: a pixel of up to 3.2 columns touches at most 5. */
+export const MAX_COLUMNS_PER_PIXEL = 5
+
+/**
+ * The columns [first, last] of a level of `columnsPerSecond` that a pixel over [a, b) reads: the
+ * one under the pixel's centre when stretched (see SPECTROGRAM_STRETCH), else every column it
+ * touches, capped to MAX_COLUMNS_PER_PIXEL around the centre column. Clamped to [lo, hi].
+ */
+function pixelColumns(
+  a: number,
+  b: number,
+  columnsPerSecond: number,
+  lo: number,
+  hi: number,
+): [number, number] {
+  const centre = Math.min(hi, Math.max(lo, Math.floor(((a + b) / 2) * columnsPerSecond)))
+  if (SPECTROGRAM_STRETCH === 'nearest' && b - a < 1 / columnsPerSecond) return [centre, centre]
+  let first = Math.floor(a * columnsPerSecond)
+  let last = Math.max(first, Math.ceil(b * columnsPerSecond) - 1)
+  first = Math.min(centre, Math.max(lo, first, centre - (MAX_COLUMNS_PER_PIXEL - 1)))
+  last = Math.max(centre, Math.min(hi, last, first + MAX_COLUMNS_PER_PIXEL - 1))
+  return [first, last]
+}
+
+/**
+ * Pure: like renderSpectrogramPixels, but draws what the tile resolver chose: per pixel column the
+ * stretch under its centre gives the image. Level 'overview' is exactly renderSpectrogramPixels.
+ * - A tile at the current level: the max of the current-level columns the pixel covers, each read
+ *   from the ready current-level tile that holds it (a pixel straddling a tile boundary sees the
+ *   next tile's columns); columns of tiles not ready are skipped (the centre column always is).
+ * - A lower-level stand-in tile: the same, from that level's columns, clamped to the tile.
+ * - The overview: overview level 0 (a pixel there is narrower than its columns).
+ * Every pixel column starting inside [0, sourceDuration) is drawn, the others stay transparent.
+ * Returns the cells read: at most MAX_COLUMNS_PER_PIXEL x SPECTROGRAM_ROWS per pixel column.
+ */
+export function renderResolvedPixels(
+  resolved: ResolvedSpectrogram,
+  overview: SpectrogramOverview,
+  table: ColorTable,
+  range: TimeRange,
+  sourceDuration: number,
+  width: number,
+  height: number,
+  out: Uint8ClampedArray,
+  scratch: SpectrogramScratch = createSpectrogramScratch(height),
+): number {
+  if (resolved.level === 'overview') {
+    return renderSpectrogramPixels(
+      overview,
+      table,
+      range,
+      sourceDuration,
+      width,
+      height,
+      out,
+      scratch,
+    )
+  }
+  out.fill(0, 0, width * height * 4)
+  const { stretches, level } = resolved
+  const base = overview.levels[0]
+  if (!(width > 0) || !(height > 0) || stretches.length === 0 || base === undefined) return 0
+  const pixelSeconds = (range.endTime - range.startTime) / width
+  if (!(pixelSeconds > 0)) return 0
+  prepareRows(scratch, height)
+
+  const { columnMax } = scratch
+  const firstIndex = stretches[0]!.index
+  let reads = 0
+  let filled = false
+  const take = (data: Uint8Array, offset: number) => {
+    reads += SPECTROGRAM_ROWS
+    if (!filled) {
+      columnMax.set(data.subarray(offset, offset + SPECTROGRAM_ROWS))
+      filled = true
+      return
     }
+    for (let r = 0; r < SPECTROGRAM_ROWS; r++) {
+      const v = data[offset + r]!
+      if (v > columnMax[r]!) columnMax[r] = v
+    }
+  }
+
+  let s = 0
+  for (let x = 0; x < width; x++) {
+    const a = range.startTime + x * pixelSeconds
+    const b = a + pixelSeconds
+    if (a < 0 || a >= sourceDuration) continue
+    const centre = (a + b) / 2
+    while (s < stretches.length - 1 && centre >= stretches[s]!.endTime) s++
+    const image = stretches[s]!.image
+    filled = false
+
+    if (image.type === 'overview') {
+      if (base.columns === 0) continue
+      const [c0, c1] = pixelColumns(a, b, base.columnsPerSecond, 0, base.columns - 1)
+      for (let c = c0; c <= c1; c++) take(base.data, c * SPECTROGRAM_ROWS)
+    } else if (image.tile.level !== level) {
+      const tile = image.tile
+      if (tile.columns === 0) continue
+      const first = tile.index * TILE_COLUMNS
+      const [c0, c1] = pixelColumns(a, b, tile.level, first, first + tile.columns - 1)
+      for (let c = c0; c <= c1; c++) take(tile.data, (c - first) * SPECTROGRAM_ROWS)
+    } else {
+      const [c0, c1] = pixelColumns(a, b, level, 0, resolved.levelColumns - 1)
+      for (let c = c0; c <= c1; c++) {
+        const index = Math.floor(c / TILE_COLUMNS)
+        const held = stretches[index - firstIndex]?.image
+        if (held === undefined || held.type !== 'tile' || held.tile.level !== level) continue
+        const relative = c - index * TILE_COLUMNS
+        if (relative < held.tile.columns) take(held.tile.data, relative * SPECTROGRAM_ROWS)
+      }
+    }
+    if (!filled) continue
+    paintColumn(out, width, height, x, scratch, table)
   }
   return reads
 }
 
 /** The renderer interface the Lane draws through. A WebGL implementation must be able to replace it. */
 export interface SpectrogramRenderer {
-  /** Draws the overview over `range` into `rect` (device pixels). Pixels past the Source's end are left transparent. */
+  /** Draws what the resolver chose over `range` into `rect` (device pixels), in one pass. Pixels past the Source's end are left transparent. */
   draw(
+    resolved: ResolvedSpectrogram,
     overview: SpectrogramOverview,
     table: ColorTable,
     range: TimeRange,
@@ -188,12 +323,13 @@ export function createCanvas2DSpectrogramRenderer(
   let image: ImageData | null = null
   const scratch = createSpectrogramScratch()
   return {
-    draw(overview, table, range, sourceDuration, rect) {
+    draw(resolved, overview, table, range, sourceDuration, rect) {
       if (!(rect.width > 0) || !(rect.height > 0)) return
       if (image === null || image.width !== rect.width || image.height !== rect.height) {
         image = context.createImageData(rect.width, rect.height)
       }
-      renderSpectrogramPixels(
+      renderResolvedPixels(
+        resolved,
         overview,
         table,
         range,

@@ -1,6 +1,10 @@
 import { useCallback, useRef } from 'react'
 import type { SourceAnalysis } from '@/audio/analysis'
 import { backgroundOverview } from '@/timeline/overlay'
+import { columnCount } from '@/timeline/detail-tile'
+import { chooseLevel, devicePixelsPerSecond, wantedTiles } from '@/timeline/detail-level'
+import { detailTiles } from '@/timeline/detail-tiles-browser'
+import { resolveSpectrogram } from '@/timeline/tile-resolver'
 import {
   createCanvas2DSpectrogramRenderer,
   createColorTable,
@@ -12,6 +16,8 @@ import { visibleTimeRange } from '@/timeline/viewport'
 import type { Viewport } from '@/timeline/viewport'
 
 const COLOR_TABLE = createColorTable()
+// A tile arriving redraws this canvas only. Stable between renders, as useCanvasLayer requires.
+const TILE_SUBSCRIPTIONS = [detailTiles.subscribe]
 
 /**
  * The bottom canvas of the Overlay Lane: the Total spectrogram (Mono: the Mono Channel's). It does
@@ -40,17 +46,41 @@ export function SpectrogramLayer({
       if (rendererRef.current?.context !== context) {
         rendererRef.current = { context, renderer: createCanvas2DSpectrogramRenderer(context) }
       }
+      const range = visibleTimeRange(frame.viewport, width, ratio)
+      const kind = stereo ? 'Total' : 'Mono'
+      const sampleCount = analysis.source.channels[0]?.length ?? 0
+      const sampleRate = analysis.source.sampleRate
+      const level = chooseLevel(devicePixelsPerSecond(frame.viewport.pixelsPerSecond, ratio))
+      if (level !== 'overview') {
+        const levelColumns = columnCount(sampleCount, sampleRate, level)
+        const wanted = wantedTiles(range.startTime, range.endTime, level, levelColumns)
+        detailTiles.want(analysis.source, wanted, [kind])
+      } else {
+        detailTiles.want(analysis.source, [], [kind])
+      }
+      const resolved = resolveSpectrogram({
+        level,
+        startTime: range.startTime,
+        endTime: range.endTime,
+        kind,
+        sampleCount,
+        sampleRate,
+        lookup: detailTiles.lookup,
+      })
       rendererRef.current.renderer.draw(
+        resolved,
         overview,
         COLOR_TABLE,
-        visibleTimeRange(frame.viewport, width, ratio),
+        range,
         analysis.source.duration,
         { x: 0, y: 0, width, height },
       )
+      for (const tile of resolved.used) detailTiles.touch(tile)
+      context.canvas.dataset.detail = detailTiles.getSnapshot().failed ? 'failed' : resolved.detail
     },
-    [analysis, overview],
+    [analysis, overview, stereo],
   )
-  const canvasRef = useCanvasLayer(viewport, draw)
+  const canvasRef = useCanvasLayer(viewport, draw, TILE_SUBSCRIPTIONS)
   return (
     <canvas
       ref={canvasRef}

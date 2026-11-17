@@ -2,6 +2,7 @@
 // pooling. Pure and worker-free; everything here is plain data (typed arrays and numbers) so it
 // crosses the worker boundary. Nothing assumes a sample rate: every parameter derives from it.
 import FFT from 'fft.js'
+import { OVERVIEW_COLUMNS_PER_SECOND, columnCount } from './detail-tile'
 import { SPECTROGRAM_ROWS, rowBandHz } from './frequency-axis'
 
 export { MAX_FREQUENCY_HZ, MIN_FREQUENCY_HZ, SPECTROGRAM_ROWS } from './frequency-axis'
@@ -10,7 +11,7 @@ export { MAX_FREQUENCY_HZ, MIN_FREQUENCY_HZ, SPECTROGRAM_ROWS } from './frequenc
 export const FLOOR_DB = -100
 /** Quantised 255 means this level or more. */
 export const CEILING_DB = 0
-export const OVERVIEW_COLUMNS_PER_SECOND = 10
+export { OVERVIEW_COLUMNS_PER_SECOND }
 
 /** One level of a spectrogram: quantised dB, column-major, row 0 = the lowest frequency (20 Hz). */
 export interface SpectrogramLevel {
@@ -157,6 +158,64 @@ export function buildColumnMaxLevels(level0: SpectrogramLevel): SpectrogramLevel
   return levels
 }
 
+/** The analysis of one FFT frame, shared by the overview and the detail tiles. Built once per sample rate. */
+export interface FrameAnalyzer {
+  /** Power spectrum length: size / 2 + 1. */
+  readonly bins: number
+  /** Power spectrum (bins 0..size/2, full scale sine = 1 in its peak bin) of the window centred on sample `centre`, zero padded beyond both ends of `samples`. */
+  analyze(samples: Float32Array, centre: number, power: Float64Array): void
+  /** Maps one power spectrum to out[0..SPECTROGRAM_ROWS). */
+  mapRows(power: ArrayLike<number>, out: Float64Array): void
+}
+
+export function createFrameAnalyzer(sampleRate: number): FrameAnalyzer {
+  const { size } = stftParameters(sampleRate)
+  const bins = size / 2 + 1
+  const map = createRowMap(sampleRate, size)
+
+  // Periodic Hann, and the 2 / Σw scaling that makes a full-scale sine read 1 in its peak bin.
+  const window = new Float64Array(size)
+  let windowSum = 0
+  for (let i = 0; i < size; i++) {
+    window[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / size)
+    windowSum += window[i]!
+  }
+  const powerScale = (2 / windowSum) ** 2
+  const input = new Float64Array(size)
+  const spectrum = new Float64Array(2 * size)
+  const fft = new FFT(size)
+
+  return {
+    bins,
+    analyze(samples, centre, power) {
+      const start = centre - size / 2
+      const from = Math.max(0, -start)
+      const to = Math.min(size, samples.length - start)
+      input.fill(0)
+      for (let i = from; i < to; i++) input[i] = samples[start + i]! * window[i]!
+      fft.realTransform(spectrum, input)
+      for (let k = 0; k < bins; k++) {
+        const re = spectrum[2 * k]!
+        const im = spectrum[2 * k + 1]!
+        power[k] = (re * re + im * im) * powerScale
+      }
+    },
+    mapRows(power, out) {
+      mapPowerToRows(map, power, out)
+    },
+  }
+}
+
+/** The Total power spectrum of two Channels' power spectra, before row mapping: out-of-phase content never cancels. */
+export function totalPower(left: Float64Array, right: Float64Array, out: Float64Array): void {
+  for (let k = 0; k < out.length; k++) out[k] = (left[k]! + right[k]!) / 2
+}
+
+/** Quantises one column of row values into out[offset..offset + SPECTROGRAM_ROWS). */
+export function quantizeColumn(rows: ArrayLike<number>, out: Uint8Array, offset: number): void {
+  for (let r = 0; r < SPECTROGRAM_ROWS; r++) out[offset + r] = quantizeDb(rows[r]!)
+}
+
 /**
  * Builds the overview spectrograms of a Source's Channels (and the Total for two Channels) in one
  * pass over the frames: no full-resolution spectrogram is ever held. onProgress receives a 0..1
@@ -169,20 +228,11 @@ export function buildSourceSpectrograms(
 ): SourceSpectrograms {
   const length = channels[0]?.length ?? 0
   const stereo = channels.length === 2
-  const { size, hop } = stftParameters(sampleRate)
-  const bins = size / 2 + 1
-  const map = createRowMap(sampleRate, size)
+  const { hop } = stftParameters(sampleRate)
+  const analyzer = createFrameAnalyzer(sampleRate)
+  const bins = analyzer.bins
 
-  // Periodic Hann, and the 2 / Σw scaling that makes a full-scale sine read 1 in its peak bin.
-  const window = new Float64Array(size)
-  let windowSum = 0
-  for (let i = 0; i < size; i++) {
-    window[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / size)
-    windowSum += window[i]!
-  }
-  const powerScale = (2 / windowSum) ** 2
-
-  const columns = Math.ceil((length * OVERVIEW_COLUMNS_PER_SECOND) / sampleRate)
+  const columns = columnCount(length, sampleRate, OVERVIEW_COLUMNS_PER_SECOND)
   const frames = length === 0 ? 0 : Math.floor((length - 1) / hop) + 1
 
   // One output per Channel, plus the Total for stereo.
@@ -191,17 +241,14 @@ export function buildSourceSpectrograms(
   const pooled = Array.from({ length: outputs }, () => new Float32Array(SPECTROGRAM_ROWS))
   const rows = new Float64Array(SPECTROGRAM_ROWS)
   const powers = channels.map(() => new Float64Array(bins))
-  const totalPower = new Float64Array(bins)
-  const input = new Float64Array(size)
-  const spectrum = new Float64Array(2 * size)
-  const fft = new FFT(size)
+  const total = new Float64Array(bins)
 
   const finishColumn = (c: number) => {
     for (let o = 0; o < outputs; o++) {
       const out = data[o]!
       const source = pooled[o]!
       const base = c * SPECTROGRAM_ROWS
-      for (let r = 0; r < SPECTROGRAM_ROWS; r++) out[base + r] = quantizeDb(source[r]!)
+      quantizeColumn(source, out, base)
       source.fill(0)
     }
   }
@@ -216,27 +263,12 @@ export function buildSourceSpectrograms(
     )
     while (currentColumn < column) finishColumn(currentColumn++)
 
-    const start = j * hop - size / 2
-    const from = Math.max(0, -start)
-    const to = Math.min(size, length - start)
-    for (let ch = 0; ch < channels.length; ch++) {
-      const samples = channels[ch]!
-      input.fill(0)
-      for (let i = from; i < to; i++) input[i] = samples[start + i]! * window[i]!
-      fft.realTransform(spectrum, input)
-      const power = powers[ch]!
-      for (let k = 0; k < bins; k++) {
-        const re = spectrum[2 * k]!
-        const im = spectrum[2 * k + 1]!
-        power[k] = (re * re + im * im) * powerScale
-      }
-    }
-    if (stereo) {
-      // Computed before row mapping: out-of-phase content never cancels.
-      for (let k = 0; k < bins; k++) totalPower[k] = (powers[0]![k]! + powers[1]![k]!) / 2
-    }
+    for (let ch = 0; ch < channels.length; ch++)
+      analyzer.analyze(channels[ch]!, j * hop, powers[ch]!)
+    // Computed before row mapping: out-of-phase content never cancels.
+    if (stereo) totalPower(powers[0]!, powers[1]!, total)
     for (let o = 0; o < outputs; o++) {
-      mapPowerToRows(map, o < channels.length ? powers[o]! : totalPower, rows)
+      analyzer.mapRows(o < channels.length ? powers[o]! : total, rows)
       const target = pooled[o]!
       for (let r = 0; r < SPECTROGRAM_ROWS; r++) if (rows[r]! > target[r]!) target[r] = rows[r]!
     }
