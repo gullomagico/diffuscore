@@ -1,12 +1,20 @@
 // The detail tile manager: ties the wanted set, the request queue, the LRU cache and the tile worker
 // together for the current Source. Plain TypeScript, no React. Its lifecycle follows the SourceStore
 // like the AnalysisStore does: the worker, queue and cache live and die with their Source. The
-// Worker is injected as a factory; the real one lives in detail-tiles-browser.ts.
+// Worker is injected as a factory; the real one lives in tile-manager-browser.ts.
 import type { Source, SourceStore } from '@/audio/source'
 import { createTileCache } from './tile-cache'
 import { planRequests } from './tile-queue'
 import type { DetailTile, SpectrogramKind, TileKey, TileRequest, WantedTile } from './detail-tile'
 import type { TileResultMessage, TileWorkerInput } from './detail-tile-messages'
+
+/** The part of an ErrorEvent or MessageEvent the manager uses when the worker fails. */
+export interface TileWorkerFailureEvent {
+  /** Stops the failure also being reported to the page's console. */
+  preventDefault(): void
+  /** The ErrorEvent message, when there is one. */
+  readonly message?: string
+}
 
 /** The part of a Worker the manager uses, so tests can fake it. */
 export interface TileWorkerLike {
@@ -16,9 +24,13 @@ export interface TileWorkerLike {
     type: 'message',
     listener: (event: { readonly data: TileResultMessage }) => void,
   ): void
-  addEventListener(type: 'error' | 'messageerror', listener: () => void): void
+  addEventListener(
+    type: 'error' | 'messageerror',
+    listener: (event: TileWorkerFailureEvent) => void,
+  ): void
 }
 
+/** What the manager publishes to subscribers: a counter that changes with the cache, and failure. */
 export interface DetailTilesSnapshot {
   /** Changes whenever a tile is accepted or the worker fails. */
   readonly version: number
@@ -26,6 +38,7 @@ export interface DetailTilesSnapshot {
   readonly failed: boolean
 }
 
+/** The detail tile manager of the current Source. */
 export interface DetailTiles {
   /**
    * Sets the wanted set (priority order) and the kinds needed. Idempotent. Ignored unless `source`
@@ -41,6 +54,7 @@ export interface DetailTiles {
   readonly subscribe: (listener: () => void) => () => void
 }
 
+/** What `createDetailTiles` needs: the SourceStore, a Worker factory, and optional overrides. */
 export interface DetailTilesOptions {
   readonly sources: SourceStore
   readonly createWorker: () => TileWorkerLike
@@ -49,6 +63,7 @@ export interface DetailTilesOptions {
   readonly logError?: (...args: unknown[]) => void
 }
 
+/** Creates the manager; its worker, queue and cache follow the SourceStore's current Source. */
 export function createDetailTiles(options: DetailTilesOptions): DetailTiles {
   const { sources, createWorker } = options
   const logError = options.logError ?? ((...args: unknown[]) => console.error(...args))
@@ -98,9 +113,15 @@ export function createDetailTiles(options: DetailTilesOptions): DetailTiles {
       pump()
       publish()
     })
-    const onFailure = () => {
+    const onFailure = (event: TileWorkerFailureEvent) => {
+      // Ours is the one error; the browser must not report the worker's again.
+      event.preventDefault()
       if (worker !== created) return
-      logError('The detail tile worker failed')
+      logError(
+        event.message
+          ? `The detail tile worker failed: ${event.message}`
+          : 'The detail tile worker failed',
+      )
       created.terminate()
       worker = null
       inFlight = null
@@ -141,7 +162,11 @@ export function createDetailTiles(options: DetailTilesOptions): DetailTiles {
       if (sources.getSnapshot() !== source || failed) return
       wanted = nextWanted
       kinds = nextKinds
-      cache.pin(nextWanted.flatMap((w) => nextKinds.map((kind) => ({ kind, ...pick(w) }))))
+      cache.pin(
+        nextWanted.flatMap((w) =>
+          nextKinds.map((kind) => ({ kind, level: w.level, index: w.index })),
+        ),
+      )
       pump()
     },
     lookup: (key) => cache.get(key),
@@ -154,8 +179,4 @@ export function createDetailTiles(options: DetailTilesOptions): DetailTiles {
       }
     },
   }
-}
-
-function pick(w: WantedTile): { level: WantedTile['level']; index: number } {
-  return { level: w.level, index: w.index }
 }

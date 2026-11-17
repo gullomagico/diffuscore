@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'vite-plus/test'
 import { createSourceStore } from '@/audio/source'
 import type { Source, SourceStore } from '@/audio/source'
-import { createDetailTiles } from './detail-tiles'
-import type { TileWorkerLike } from './detail-tiles'
+import { createDetailTiles } from './tile-manager'
+import type { TileWorkerFailureEvent, TileWorkerLike } from './tile-manager'
 import type { DetailTile, SpectrogramKind, TileRequest, WantedTile } from './detail-tile'
 import type { TileResultMessage, TileWorkerInput } from './detail-tile-messages'
 
@@ -11,8 +11,8 @@ class FakeWorker implements TileWorkerLike {
   terminated = false
   private readonly listeners = {
     message: [] as ((event: { readonly data: TileResultMessage }) => void)[],
-    error: [] as (() => void)[],
-    messageerror: [] as (() => void)[],
+    error: [] as ((event: TileWorkerFailureEvent) => void)[],
+    messageerror: [] as ((event: TileWorkerFailureEvent) => void)[],
   }
   postMessage(message: TileWorkerInput): void {
     this.posted.push(message)
@@ -24,7 +24,10 @@ class FakeWorker implements TileWorkerLike {
     type: 'message',
     listener: (event: { readonly data: TileResultMessage }) => void,
   ): void
-  addEventListener(type: 'error' | 'messageerror', listener: () => void): void
+  addEventListener(
+    type: 'error' | 'messageerror',
+    listener: (event: TileWorkerFailureEvent) => void,
+  ): void
   addEventListener(type: 'message' | 'error' | 'messageerror', listener: never): void {
     ;(this.listeners[type] as unknown[]).push(listener)
   }
@@ -37,8 +40,17 @@ class FakeWorker implements TileWorkerLike {
     const tiles = request.kinds.map((kind) => tile(kind, request.index, request.level))
     for (const l of this.listeners.message) l({ data: { request, tiles } })
   }
-  fail(type: 'error' | 'messageerror' = 'error'): void {
-    for (const l of this.listeners[type]) l()
+  /** Fires a failure event and returns it, so a test can see whether it was defaulted. */
+  fail(type: 'error' | 'messageerror' = 'error', message?: string): { prevented: boolean } {
+    const seen = { prevented: false }
+    const event: TileWorkerFailureEvent = {
+      message,
+      preventDefault: () => {
+        seen.prevented = true
+      },
+    }
+    for (const l of this.listeners[type]) l(event)
+    return seen
   }
 }
 
@@ -212,9 +224,11 @@ describe('detail tiles', () => {
       let calls = 0
       tiles.subscribe(() => calls++)
       tiles.want(source, [visible(0), visible(1)], TOTAL)
+      const first = workers[0]!.fail(type, 'boom')
       workers[0]!.fail(type)
-      workers[0]!.fail(type)
+      expect(first.prevented).toBe(true)
       expect(errors).toHaveLength(1)
+      expect(JSON.stringify(errors[0])).toContain('boom')
       expect(workers[0]!.terminated).toBe(true)
       expect(tiles.getSnapshot().failed).toBe(true)
       expect(calls).toBe(1)

@@ -21,6 +21,7 @@ export interface ResolvedStretch {
   readonly image: StretchImage
 }
 
+/** What to draw for a visible range: the stretches, whether detail is ready, and the tiles used. */
 export interface ResolvedSpectrogram {
   readonly level: LevelChoice
   /** Columns of the current level (0 for the overview level), for clamping column reads. */
@@ -33,6 +34,7 @@ export interface ResolvedSpectrogram {
   readonly used: readonly DetailTile[]
 }
 
+/** The visible range, level and Source geometry to resolve, plus the cache lookup. */
 export interface ResolveInput {
   readonly level: LevelChoice
   readonly startTime: number
@@ -44,6 +46,7 @@ export interface ResolveInput {
   readonly lookup: (key: TileKey) => DetailTile | undefined
 }
 
+/** Resolves the visible range to cached tiles at the level, lower-level stand-ins, or the overview. */
 export function resolveSpectrogram(input: ResolveInput): ResolvedSpectrogram {
   const { level, kind, sampleCount, sampleRate, lookup } = input
   const duration = sampleCount / sampleRate

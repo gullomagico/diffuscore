@@ -3,7 +3,7 @@ import type { SourceAnalysis } from '@/audio/analysis'
 import { backgroundOverview } from '@/timeline/overlay'
 import { columnCount } from '@/timeline/detail-tile'
 import { chooseLevel, devicePixelsPerSecond, wantedTiles } from '@/timeline/detail-level'
-import { detailTiles } from '@/timeline/detail-tiles-browser'
+import { detailTiles } from '@/timeline/tile-manager-browser'
 import { resolveSpectrogram } from '@/timeline/tile-resolver'
 import {
   createCanvas2DSpectrogramRenderer,
@@ -51,13 +51,10 @@ export function SpectrogramLayer({
       const sampleCount = analysis.source.channels[0]?.length ?? 0
       const sampleRate = analysis.source.sampleRate
       const level = chooseLevel(devicePixelsPerSecond(frame.viewport.pixelsPerSecond, ratio))
-      if (level !== 'overview') {
-        const levelColumns = columnCount(sampleCount, sampleRate, level)
-        const wanted = wantedTiles(range.startTime, range.endTime, level, levelColumns)
-        detailTiles.want(analysis.source, wanted, [kind])
-      } else {
-        detailTiles.want(analysis.source, [], [kind])
-      }
+      // The overview has no detail columns, and wantedTiles wants no tiles for it.
+      const levelColumns = level === 'overview' ? 0 : columnCount(sampleCount, sampleRate, level)
+      const wanted = wantedTiles(range.startTime, range.endTime, level, levelColumns)
+      detailTiles.want(analysis.source, wanted, [kind])
       const resolved = resolveSpectrogram({
         level,
         startTime: range.startTime,

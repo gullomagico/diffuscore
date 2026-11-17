@@ -168,6 +168,7 @@ export interface FrameAnalyzer {
   mapRows(power: ArrayLike<number>, out: Float64Array): void
 }
 
+/** Creates the frame analyzer (windowed FFT and row mapping) for a sample rate. */
 export function createFrameAnalyzer(sampleRate: number): FrameAnalyzer {
   const { size } = stftParameters(sampleRate)
   const bins = size / 2 + 1

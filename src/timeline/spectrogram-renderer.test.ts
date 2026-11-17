@@ -494,6 +494,23 @@ describe('renderResolvedPixels', () => {
       })
     }
 
+    test('one pixel column at the widest 32-level pixel, straddling a tile boundary, reads at most 5 columns', () => {
+      // A canvas 1 device pixel wide over 0.099 s (just above 10 px/s, 3.168 columns), centred on
+      // the 16 s boundary between tiles 0 and 1 of the 32 level.
+      const t0 = makeTile(32, 0, samples, (c, r) => (c * 7 + r) & 255)
+      const t1 = makeTile(32, 1, samples, (c, r) => (c * 7 + r) & 255)
+      const cases = {
+        'both tiles': [t0, t1],
+        'one tile, the other from the overview': [t0],
+        none: [],
+      }
+      for (const [name, tiles] of Object.entries(cases)) {
+        const { reads } = renderTiles(32, tiles, flat, SECONDS, 15.9505, 16.0495, 1)
+        expect(reads, name).toBeGreaterThan(0)
+        expect(reads, name).toBeLessThanOrEqual(5 * SPECTROGRAM_ROWS)
+      }
+    })
+
     test('the overview level is bounded the same way', () => {
       expect(reads(1800, 'overview', 0.6, [])).toBeLessThanOrEqual(3 * WIDTH * SPECTROGRAM_ROWS)
       expect(reads(60, 'overview', 0.6, [])).toBeLessThanOrEqual(3 * WIDTH * SPECTROGRAM_ROWS)

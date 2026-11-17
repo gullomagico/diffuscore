@@ -4,16 +4,19 @@ import { chooseLevel, devicePixelsPerSecond, wantedTiles } from './detail-level'
 describe('chooseLevel', () => {
   test('the overview up to 10 device pixels per second', () => {
     expect(chooseLevel(0.5)).toBe('overview')
+    expect(chooseLevel(9.99)).toBe('overview')
     expect(chooseLevel(10)).toBe('overview')
   })
 
   test('32 columns per second above 10 and up to 32', () => {
     expect(chooseLevel(10.01)).toBe(32)
+    expect(chooseLevel(31.99)).toBe(32)
     expect(chooseLevel(32)).toBe(32)
   })
 
   test('64 columns per second above 32 and up to 64', () => {
     expect(chooseLevel(32.01)).toBe(64)
+    expect(chooseLevel(63.99)).toBe(64)
     expect(chooseLevel(64)).toBe(64)
   })
 

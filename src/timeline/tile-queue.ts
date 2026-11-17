@@ -10,6 +10,7 @@ import {
   type WantedTile,
 } from './detail-tile'
 
+/** What `planRequests` re-plans from: the previous queue, the wanted set and what is cached. */
 export interface QueuePlanInput {
   /** The previous queue: pending, not yet sent. */
   readonly queue: readonly TileRequest[]
@@ -22,6 +23,7 @@ export interface QueuePlanInput {
   readonly inFlight: TileRequest | null
 }
 
+/** The result of re-planning: the new queue, what was dropped and the request to send now. */
 export interface QueuePlan {
   /** The new queue in priority order, excluding `next`. */
   readonly queue: TileRequest[]

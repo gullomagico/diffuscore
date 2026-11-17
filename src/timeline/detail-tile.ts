@@ -51,7 +51,7 @@ export function visibleTileRange(
   endTime: number,
   level: DetailLevel,
   levelColumns: number,
-): { first: number; last: number } | null {
+): { readonly first: number; readonly last: number } | null {
   if (!(endTime > startTime) || levelColumns <= 0) return null
   const c0 = Math.max(0, Math.floor(startTime * level))
   const c1 = Math.min(levelColumns - 1, Math.ceil(endTime * level) - 1)

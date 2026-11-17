@@ -1,16 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Locator } from '@playwright/test'
-import { makeWav } from '../src/audio/testing/fixtures.ts'
-
-function wav(
-  name: string,
-  channels: number,
-  seconds: number,
-  options: { sampleRate?: number; amplitude?: number; ramp?: boolean } = {},
-) {
-  const bytes = makeWav({ channels, sampleRate: 44100, seconds, ...options })
-  return { name, mimeType: 'audio/wav', buffer: Buffer.from(bytes) }
-}
+import { canvasHash, spectrogramHasSignal, wav } from './helpers.ts'
 
 test('imports a stereo WAV, then refuses a 3-channel one', async ({ page }) => {
   await page.goto('/')
@@ -163,33 +153,6 @@ function pixelHash(canvas: Locator) {
     let hash = 0
     for (let i = 0; i < data.length; i++) hash = (hash * 31 + data[i]!) | 0
     return hash
-  })
-}
-
-function canvasHash(canvas: Locator) {
-  return canvas.evaluate((element) => {
-    const { width, height } = element as HTMLCanvasElement
-    const data = (element as HTMLCanvasElement)
-      .getContext('2d')!
-      .getImageData(0, 0, width, height).data
-    let hash = 0
-    for (let i = 3; i < data.length; i += 4) hash = (hash * 31 + data[i]!) | 0
-    return hash
-  })
-}
-
-/** True once the spectrogram has drawn pixels that are neither transparent nor the table's floor colour. */
-function spectrogramHasSignal(canvas: Locator) {
-  return canvas.evaluate((element) => {
-    const { width, height } = element as HTMLCanvasElement
-    const data = (element as HTMLCanvasElement)
-      .getContext('2d')!
-      .getImageData(0, 0, width, height).data
-    // The floor of the colour table is #000004: its brightest channel is 4.
-    for (let i = 0; i < data.length; i += 4) {
-      if (data[i + 3] !== 0 && Math.max(data[i]!, data[i + 1]!, data[i + 2]!) > 40) return true
-    }
-    return false
   })
 }
 
