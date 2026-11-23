@@ -1,0 +1,2 @@
+# Installed agent skills (tracked in skills-lock.json) are third-party, not project code
+.agents/skills/** linguist-vendored

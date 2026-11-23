@@ -1,0 +1,12 @@
+# CMake builds
+build/
+cmake-build-*/
+CMakeUserPresets.json
+compile_commands.json
+
+# Editors and OS
+.vscode/
+.idea/
+.cache/
+*.sw?
+.DS_Store
