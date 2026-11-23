@@ -1,6 +1,6 @@
 # DiffuScore
 
-A web editor where performers of acousmatic music build personal diffusion scores: visual representations of a fixed stereo piece, used to guide its spatialization over a loudspeaker orchestra.
+A desktop application where performers of acousmatic music build personal diffusion scores: visual representations of a fixed stereo (or mono) piece, used to guide its spatialization over a loudspeaker orchestra (acousmonium). During the concert, DiffuScore also plays the piece to the diffusion desk.
 
 ## Documents
 
@@ -9,7 +9,7 @@ The document a performer creates and edits for one piece. A Score is built on ex
 _Avoid_: Project, session, track
 
 **Source**:
-The stereo (or mono) audio a Score is built on, as imported into DiffuScore and held decoded at the application's working sample rate.
+The stereo or mono PCM audio a Score is built on, as loaded into DiffuScore.
 _Avoid_: Track, clip, file, audio
 
 **Playlist** _(planned)_:
@@ -21,28 +21,3 @@ _Avoid_: Setlist, project
 **Channel**:
 One signal of a Source: L and R for stereo, or a single Mono channel.
 _Avoid_: Track, canal
-
-**Total spectrogram**:
-A single spectrogram representing the energy of both Channels together, without cancellation between them. Only a stereo Source has one: a Mono Source has just the spectrogram of its single Channel.
-_Avoid_: Mid spectrogram, sum spectrogram
-
-## Workspace
-
-**Timeline**:
-The horizontal time axis on which every Lane, and later every annotation, of a Score is laid out.
-
-**Viewport**:
-The portion of the Timeline currently visible: which time range is shown and at what zoom.
-_Avoid_: View, window, camera
-
-**Lane**:
-One horizontal band of the Timeline showing one or more representations (waveform, spectrogram) of one or more Channels, layered one over the other.
-_Avoid_: Track, row, strip
-
-**Mirrored waveform**:
-A waveform Lane where R is drawn above a shared zero line and L below it, so the energy of the two Channels can be compared at a glance.
-_Avoid_: Butterfly, split waveform
-
-**Preset**:
-A named arrangement of Lanes on the Timeline (Overlay, Stacked, Spectrogram only, Waveforms only).
-_Avoid_: Layout, view mode, template
