@@ -9,13 +9,19 @@ MainWindow::MainWindow (const juce::String& name)
                       juce::Desktop::getInstance().getDefaultLookAndFeel().findColour (backgroundColourId),
                       allButtons)
 {
-    // The application handles StandardApplicationCommandIDs::quit (Ctrl+Q).
+    auto* mainComponent = new MainComponent (commandManager);
+    setContentOwned (mainComponent, true);
+
+    // The main component handles File → Open (Ctrl+O), then passes other commands on to
+    // the application, which handles StandardApplicationCommandIDs::quit (Ctrl+Q).
+    commandManager.registerAllCommandsForTarget (mainComponent);
     commandManager.registerAllCommandsForTarget (juce::JUCEApplication::getInstance());
+    commandManager.setFirstCommandTarget (mainComponent);
     addKeyListener (commandManager.getKeyMappings());
 
     setUsingNativeTitleBar (true);
+    setApplicationCommandManagerToWatch (&commandManager);
     setMenuBar (this);
-    setContentOwned (new MainComponent(), true);
     setResizable (true, true);
     setResizeLimits (480, 320, 10000, 10000);
     centreWithSize (getWidth(), getHeight());
@@ -25,6 +31,7 @@ MainWindow::MainWindow (const juce::String& name)
 MainWindow::~MainWindow()
 {
     setMenuBar (nullptr);
+    commandManager.setFirstCommandTarget (nullptr);
 }
 
 void MainWindow::closeButtonPressed()
@@ -42,7 +49,11 @@ juce::PopupMenu MainWindow::getMenuForIndex (int topLevelMenuIndex, const juce::
     juce::PopupMenu menu;
 
     if (topLevelMenuIndex == 0)
+    {
+        menu.addCommandItem (&commandManager, MainComponent::openFile);
+        menu.addSeparator();
         menu.addCommandItem (&commandManager, juce::StandardApplicationCommandIDs::quit);
+    }
 
     return menu;
 }

@@ -1,4 +1,6 @@
 add_executable(diffuscore_tests
+    AvailableMemoryTests.cpp
+    SourceLoadingTests.cpp
     VersionTests.cpp)
 
 target_link_libraries(diffuscore_tests PRIVATE
@@ -7,3 +9,4 @@ target_link_libraries(diffuscore_tests PRIVATE
 
 include(Catch)
 catch_discover_tests(diffuscore_tests)
+

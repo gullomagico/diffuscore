@@ -4,7 +4,7 @@
 
 namespace diffuscore
 {
-/** The resizable main window, with the menu bar (File → Quit). */
+/** The resizable main window, with the menu bar (File → Open, Quit). */
 class MainWindow final : public juce::DocumentWindow,
                          private juce::MenuBarModel
 {
