@@ -2,6 +2,7 @@ add_executable(diffuscore_tests
     AvailableMemoryTests.cpp
     SourceLoadingTests.cpp
     SpectrogramTests.cpp
+    TransportTests.cpp
     VersionTests.cpp)
 
 target_link_libraries(diffuscore_tests PRIVATE

@@ -20,5 +20,6 @@ target_link_libraries(DiffuScore
     PRIVATE
         diffuscore_core
         juce::juce_audio_devices
+        juce::juce_audio_utils
         juce::juce_gui_extra
         juce::juce_recommended_lto_flags)

@@ -12,8 +12,9 @@ MainWindow::MainWindow (const juce::String& name)
     auto* mainComponent = new MainComponent (commandManager);
     setContentOwned (mainComponent, true);
 
-    // The main component handles File → Open (Ctrl+O), then passes other commands on to
-    // the application, which handles StandardApplicationCommandIDs::quit (Ctrl+Q).
+    // The main component handles File → Open (Ctrl+O), Audio Settings and the Transport (Space),
+    // then passes other commands on to the application, which handles
+    // StandardApplicationCommandIDs::quit (Ctrl+Q).
     commandManager.registerAllCommandsForTarget (mainComponent);
     commandManager.registerAllCommandsForTarget (juce::JUCEApplication::getInstance());
     commandManager.setFirstCommandTarget (mainComponent);
@@ -41,7 +42,7 @@ void MainWindow::closeButtonPressed()
 
 juce::StringArray MainWindow::getMenuBarNames()
 {
-    return { "File" };
+    return { "File", "Transport" };
 }
 
 juce::PopupMenu MainWindow::getMenuForIndex (int topLevelMenuIndex, const juce::String&)
@@ -52,7 +53,14 @@ juce::PopupMenu MainWindow::getMenuForIndex (int topLevelMenuIndex, const juce::
     {
         menu.addCommandItem (&commandManager, MainComponent::openFile);
         menu.addSeparator();
+        menu.addCommandItem (&commandManager, MainComponent::audioSettings);
+        menu.addSeparator();
         menu.addCommandItem (&commandManager, juce::StandardApplicationCommandIDs::quit);
+    }
+    else if (topLevelMenuIndex == 1)
+    {
+        menu.addCommandItem (&commandManager, MainComponent::playPause);
+        menu.addCommandItem (&commandManager, MainComponent::stopPlayback);
     }
 
     return menu;

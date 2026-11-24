@@ -3,7 +3,9 @@
 #include "SpectrogramView.h"
 
 #include <SourceLoading.h>
+#include <Transport.h>
 
+#include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
 namespace diffuscore
@@ -11,15 +13,22 @@ namespace diffuscore
 class SourceLoadingWindow;
 
 /** The content of the main window: holds the Source, opens files by menu or drag-and-drop,
-    shows the Source's Spectrogram, and its details in the bottom bar. */
+    shows the Source's Spectrogram, and its details in the bottom bar. Owns the audio device,
+    switched to the Source's sample rate on load (ADR-0002), and plays the Source to it through the Transport. */
 class MainComponent final : public juce::Component,
                             public juce::ApplicationCommandTarget,
-                            public juce::FileDragAndDropTarget
+                            public juce::FileDragAndDropTarget,
+                            private juce::AudioIODeviceCallback,
+                            private juce::ChangeListener,
+                            private juce::Timer
 {
 public:
     enum CommandIDs
     {
-        openFile = 0x2000
+        openFile = 0x2000,
+        audioSettings,
+        playPause,
+        stopPlayback
     };
 
     explicit MainComponent (juce::ApplicationCommandManager& commandManager);
@@ -42,6 +51,33 @@ public:
     void filesDropped (const juce::StringArray& files, int x, int y) override;
 
 private:
+    // AudioIODeviceCallback: render() on the audio thread; never allocates, locks or touches the disk.
+    void audioDeviceIOCallbackWithContext (const float* const* inputChannelData,
+                                           int numInputChannels,
+                                           float* const* outputChannelData,
+                                           int numOutputChannels,
+                                           int numSamples,
+                                           const juce::AudioIODeviceCallbackContext& context) override;
+    void audioDeviceAboutToStart (juce::AudioIODevice* device) override;
+    void audioDeviceStopped() override {}
+
+    // ChangeListener: the audio device changed
+    void changeListenerCallback (juce::ChangeBroadcaster* source) override;
+
+    // Timer: follows the Transport with the playhead, the elapsed time and the Play/Pause button
+    void timerCallback() override;
+    void updateTransportDisplay();
+
+    void initialiseAudioDevice();
+    void saveAudioDeviceSettings();
+    void showAudioSettings();
+    void switchDeviceToSourceRate();
+    void updatePlayability();
+    bool isPlayable() const noexcept { return source != nullptr && ! playbackRefusal.has_value(); }
+    void seekToFractionOfSource (double fraction);
+    juce::String describeElapsedAndTotal() const;
+    juce::Rectangle<int> getBottomBarArea() const;
+
     void chooseFileToOpen();
     void requestOpen (const juce::File& file);
     void startLoading (const juce::File& file);
@@ -49,10 +85,18 @@ private:
     bool isLoading() const noexcept { return loadingWindow != nullptr; }
 
     juce::ApplicationCommandManager& commands;
+    juce::ApplicationProperties settings;
+    juce::AudioDeviceManager deviceManager;
     std::unique_ptr<Source> source;
+    Transport transport;                         // plays source; the audio callback is removed whenever source changes
+    std::atomic<double> sourceSampleRate { 0.0 }; // for audioDeviceAboutToStart(), whichever thread calls it
+    std::optional<juce::String> playbackRefusal;  // why the loaded Source can't play on the current device
     SpectrogramView spectrogramView; // after source: destroyed first, so its analysis stops before the Source goes
     std::unique_ptr<SourceLoadingWindow> loadingWindow;
     std::unique_ptr<juce::FileChooser> fileChooser;
+    juce::TextButton playPauseButton { "Play" };
+    juce::TextButton stopButton { "Stop" };
+    juce::String elapsedAndTotal;
     bool isDraggingFileOver = false;
     bool isConfirmingReplace = false;
 

@@ -22,8 +22,16 @@ _Avoid_: Setlist, project
 One signal of a Source: L and R for stereo, or a single Mono channel.
 _Avoid_: Track, canal
 
+**Transport**:
+Playing the Source to the audio device: Play/Pause, Stop (back to the start), jumping to a point, and the position reached. At the end of the Source, playback stops there; the next Play starts from the beginning.
+_Avoid_: Player, deck
+
 ## Display
 
 **Spectrogram**:
 The levels of a whole Source over time and frequency, as shown in the main window. For stereo, the two Channels' energies are added, so material in antiphase between L and R stays visible.
 _Avoid_: Sonogram, waveform
+
+**Playhead**:
+The line over the Spectrogram marking the Transport's position in the Source.
+_Avoid_: Cursor, marker

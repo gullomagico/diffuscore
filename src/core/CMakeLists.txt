@@ -3,6 +3,7 @@ add_library(diffuscore_core STATIC
     AvailableMemory.cpp
     SourceLoading.cpp
     Spectrogram.cpp
+    Transport.cpp
     Version.cpp)
 
 target_include_directories(diffuscore_core PUBLIC

@@ -2,15 +2,22 @@
 
 #include "SourceLoadingWindow.h"
 
+#include <juce_audio_utils/juce_audio_utils.h>
+
+#include <algorithm>
+
 namespace diffuscore
 {
 namespace
 {
 constexpr int bottomBarHeight = 28;
+constexpr int transportButtonWidth = 64;
+constexpr int elapsedTimeWidth = 120;
 
+/** Whole seconds, truncated, so the elapsed time reaches the total exactly at the end. */
 juce::String describeDuration (double seconds)
 {
-    const auto totalSeconds = (int) std::round (seconds);
+    const auto totalSeconds = (int) std::floor (std::max (0.0, seconds));
     const auto hours = totalSeconds / 3600;
     const auto minutes = (totalSeconds / 60) % 60;
     const auto secs = totalSeconds % 60;
@@ -34,16 +41,207 @@ juce::String describeChannels (int numChannels)
 {
     return numChannels == 1 ? "Mono" : "Stereo";
 }
+
+bool isSameSampleRate (double a, double b)
+{
+    return juce::roundToInt (a) == juce::roundToInt (b);
+}
+
+juce::PropertiesFile::Options settingsFileOptions()
+{
+    juce::PropertiesFile::Options options;
+    options.applicationName = "DiffuScore";
+    options.filenameSuffix = ".settings";
+    options.folderName = "DiffuScore";
+    options.osxLibrarySubFolder = "Application Support";
+    return options;
+}
+
+const juce::String audioDeviceStateKey = "audioDeviceState";
+
+void logAudioDeviceError (const juce::String& error)
+{
+    if (error.isNotEmpty())
+        DBG ("Audio device: " << error);
+}
 } // namespace
 
 MainComponent::MainComponent (juce::ApplicationCommandManager& commandManager)
     : commands (commandManager)
 {
     addAndMakeVisible (spectrogramView);
+    spectrogramView.onSeek = [this] (double fraction) { seekToFractionOfSource (fraction); };
+
+    for (auto* button : { &playPauseButton, &stopButton })
+    {
+        button->setWantsKeyboardFocus (false); // Space is the Play/Pause key, not a button click
+        addAndMakeVisible (button);
+    }
+
+    playPauseButton.setCommandToTrigger (&commands, playPause, true);
+    stopButton.setCommandToTrigger (&commands, stopPlayback, true);
+
+    settings.setStorageParameters (settingsFileOptions());
+    initialiseAudioDevice();
+
     setSize (1000, 600);
 }
 
-MainComponent::~MainComponent() = default;
+MainComponent::~MainComponent()
+{
+    stopTimer();
+    deviceManager.removeChangeListener (this);
+    deviceManager.removeAudioCallback (this);
+    deviceManager.closeAudioDevice();
+}
+
+void MainComponent::initialiseAudioDevice()
+{
+    const auto savedState = settings.getUserSettings()->getXmlValue (audioDeviceStateKey);
+    logAudioDeviceError (deviceManager.initialise (0, 2, savedState.get(), true));
+
+    deviceManager.addChangeListener (this);
+    deviceManager.addAudioCallback (this);
+}
+
+void MainComponent::saveAudioDeviceSettings()
+{
+    // Only settings the performer chose: nothing is saved while the default device is in use.
+    if (const auto state = deviceManager.createStateXml())
+    {
+        settings.getUserSettings()->setValue (audioDeviceStateKey, state.get());
+        settings.saveIfNeeded();
+    }
+}
+
+void MainComponent::showAudioSettings()
+{
+    // Two outputs, as a stereo pair: the Source goes to the pair chosen here, outputs 1 + 2 by default.
+    auto selector = std::make_unique<juce::AudioDeviceSelectorComponent> (deviceManager, 0, 0, 2, 2, false, false, true, false);
+    selector->setSize (500, 400);
+
+    juce::DialogWindow::LaunchOptions options;
+    options.content.setOwned (selector.release());
+    options.dialogTitle = "Audio Settings";
+    options.dialogBackgroundColour = getLookAndFeel().findColour (juce::ResizableWindow::backgroundColourId);
+    options.componentToCentreAround = this;
+    options.escapeKeyTriggersCloseButton = true;
+    options.useNativeTitleBar = true;
+    options.resizable = true;
+    options.launchAsync();
+}
+
+void MainComponent::audioDeviceIOCallbackWithContext (const float* const*,
+                                                      int,
+                                                      float* const* outputChannelData,
+                                                      int numOutputChannels,
+                                                      int numSamples,
+                                                      const juce::AudioIODeviceCallbackContext&)
+{
+    transport.render (outputChannelData, numOutputChannels, numSamples);
+}
+
+void MainComponent::audioDeviceAboutToStart (juce::AudioIODevice* device)
+{
+    // Before any callback at a new rate: never play the Source at the wrong pitch, even for one block.
+    // The message thread then disables playback in changeListenerCallback().
+    if (! isSameSampleRate (device->getCurrentSampleRate(), sourceSampleRate.load()))
+        transport.pause();
+}
+
+void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    saveAudioDeviceSettings();
+    updatePlayability();
+}
+
+void MainComponent::switchDeviceToSourceRate()
+{
+    auto* device = deviceManager.getCurrentAudioDevice();
+
+    if (device == nullptr || isSameSampleRate (device->getCurrentSampleRate(), source->sampleRate))
+        return;
+
+    // JACK, for one, offers only the server's rate: nothing to try then.
+    const auto rates = device->getAvailableSampleRates();
+
+    if (std::none_of (rates.begin(), rates.end(), [this] (double rate) { return isSameSampleRate (rate, source->sampleRate); }))
+        return;
+
+    auto setup = deviceManager.getAudioDeviceSetup();
+    setup.sampleRate = source->sampleRate;
+    logAudioDeviceError (deviceManager.setAudioDeviceSetup (setup, true));
+}
+
+void MainComponent::updatePlayability()
+{
+    const auto wasPlayable = isPlayable();
+    playbackRefusal.reset();
+
+    if (source != nullptr)
+    {
+        auto* device = deviceManager.getCurrentAudioDevice();
+
+        if (device == nullptr)
+            playbackRefusal = "No audio device is open. Choose one in File > Audio Settings.";
+        else if (! isSameSampleRate (device->getCurrentSampleRate(), source->sampleRate))
+            playbackRefusal = "The audio device runs at " + describeSampleRate (device->getCurrentSampleRate())
+                            + " and can't switch to " + describeSampleRate (source->sampleRate)
+                            + ". Convert the file or change the interface rate.";
+    }
+
+    if (! isPlayable())
+        transport.pause();
+
+    if (wasPlayable != isPlayable())
+        commands.commandStatusChanged();
+
+    updateTransportDisplay();
+    repaint (getBottomBarArea());
+}
+
+void MainComponent::seekToFractionOfSource (double fraction)
+{
+    if (isPlayable())
+        transport.seek ((juce::int64) std::llround (fraction * (double) source->getLengthInFrames()));
+}
+
+juce::String MainComponent::describeElapsedAndTotal() const
+{
+    if (source == nullptr)
+        return {};
+
+    return describeDuration ((double) transport.getPosition() / source->sampleRate)
+         + " / " + describeDuration (source->getDurationSeconds());
+}
+
+void MainComponent::timerCallback()
+{
+    updateTransportDisplay();
+}
+
+void MainComponent::updateTransportDisplay()
+{
+    if (source == nullptr || source->getLengthInFrames() == 0)
+    {
+        spectrogramView.setPlayhead (std::nullopt);
+        return;
+    }
+
+    spectrogramView.setPlayhead ((double) transport.getPosition() / (double) source->getLengthInFrames());
+    playPauseButton.setButtonText (transport.isPlaying() ? "Pause" : "Play");
+
+    if (auto text = describeElapsedAndTotal(); text != elapsedAndTotal)
+    {
+        elapsedAndTotal = std::move (text);
+        repaint (getBottomBarArea());
+    }
+}
+
+juce::Rectangle<int> MainComponent::getBottomBarArea() const
+{
+    return getLocalBounds().removeFromBottom (bottomBarHeight);
+}
 
 void MainComponent::paint (juce::Graphics& g)
 {
@@ -66,14 +264,21 @@ void MainComponent::paint (juce::Graphics& g)
 
     if (source != nullptr)
     {
-        const auto info = source->fileName
-                        + "   |   " + describeDuration (source->getDurationSeconds())
-                        + "   |   " + describeSampleRate (source->sampleRate)
-                        + "   |   " + describeChannels (source->getNumChannels());
+        auto textArea = bottomBar.withTrimmedLeft (2 * transportButtonWidth + 8);
+        const auto timeArea = textArea.removeFromLeft (elapsedTimeWidth);
+
+        auto info = source->fileName
+                  + "   |   " + describeSampleRate (source->sampleRate)
+                  + "   |   " + describeChannels (source->getNumChannels());
+
+        if (playbackRefusal.has_value())
+            info += "   |   Playback unavailable: " + *playbackRefusal;
 
         g.setColour (textColour);
+        g.setFont (juce::FontOptions (14.0f).withStyle ("Bold"));
+        g.drawFittedText (elapsedAndTotal, timeArea.reduced (8, 0), juce::Justification::centred, 1);
         g.setFont (14.0f);
-        g.drawFittedText (info, bottomBar.reduced (10, 0), juce::Justification::centredLeft, 1);
+        g.drawFittedText (info, textArea.reduced (10, 0), juce::Justification::centredLeft, 1);
     }
 }
 
@@ -89,7 +294,12 @@ void MainComponent::paintOverChildren (juce::Graphics& g)
 
 void MainComponent::resized()
 {
-    spectrogramView.setBounds (getLocalBounds().withTrimmedBottom (bottomBarHeight));
+    auto area = getLocalBounds();
+    auto bottomBar = area.removeFromBottom (bottomBarHeight).reduced (4, 2);
+    spectrogramView.setBounds (area);
+
+    playPauseButton.setBounds (bottomBar.removeFromLeft (transportButtonWidth));
+    stopButton.setBounds (bottomBar.removeFromLeft (transportButtonWidth).withTrimmedLeft (4));
 }
 
 juce::ApplicationCommandTarget* MainComponent::getNextCommandTarget()
@@ -99,7 +309,7 @@ juce::ApplicationCommandTarget* MainComponent::getNextCommandTarget()
 
 void MainComponent::getAllCommands (juce::Array<juce::CommandID>& ids)
 {
-    ids.add (openFile);
+    ids.addArray ({ openFile, audioSettings, playPause, stopPlayback });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID commandID, juce::ApplicationCommandInfo& result)
@@ -110,15 +320,45 @@ void MainComponent::getCommandInfo (juce::CommandID commandID, juce::Application
         result.addDefaultKeypress ('o', juce::ModifierKeys::commandModifier);
         result.setActive (! isLoading());
     }
+    else if (commandID == audioSettings)
+    {
+        result.setInfo ("Audio Settings...", "Chooses the audio device and its outputs", "File", 0);
+    }
+    else if (commandID == playPause)
+    {
+        result.setInfo ("Play/Pause", "Plays or pauses the Source", "Transport", 0);
+        result.addDefaultKeypress (juce::KeyPress::spaceKey, juce::ModifierKeys::noModifiers);
+        result.setActive (isPlayable());
+    }
+    else if (commandID == stopPlayback)
+    {
+        result.setInfo ("Stop", "Stops and returns to the start of the Source", "Transport", 0);
+        result.setActive (isPlayable());
+    }
 }
 
 bool MainComponent::perform (const InvocationInfo& info)
 {
-    if (info.commandID != openFile)
-        return false;
-
-    chooseFileToOpen();
-    return true;
+    switch (info.commandID)
+    {
+        case openFile:
+            chooseFileToOpen();
+            return true;
+        case audioSettings:
+            showAudioSettings();
+            return true;
+        case playPause:
+            if (isPlayable())
+                transport.togglePlayPause();
+            updateTransportDisplay();
+            return true;
+        case stopPlayback:
+            transport.stop();
+            updateTransportDisplay();
+            return true;
+        default:
+            return false;
+    }
 }
 
 bool MainComponent::isInterestedInFileDrag (const juce::StringArray& files)
@@ -212,10 +452,29 @@ void MainComponent::loadingFinished (juce::File file, SourceLoadResult result)
 
     if (result.source != nullptr)
     {
-        spectrogramView.setSource (nullptr); // stops analysing the old Source before it is destroyed
+        // Neither the audio callback nor the analysis may touch the old Source once it is destroyed.
+        deviceManager.removeAudioCallback (this);
+        spectrogramView.setSource (nullptr);
         source = std::move (result.source);
+        transport.setSource (source.get());
+        sourceSampleRate = source->sampleRate;
         spectrogramView.setSource (source.get());
+
+        switchDeviceToSourceRate();
+        deviceManager.addAudioCallback (this); // after the switch, so audioDeviceAboutToStart() sees the new rate
+        updatePlayability();
+        commands.commandStatusChanged();
+        startTimerHz (30);
         repaint();
+
+        if (playbackRefusal.has_value())
+            juce::AlertWindow::showAsync (juce::MessageBoxOptions()
+                                              .withIconType (juce::MessageBoxIconType::WarningIcon)
+                                              .withTitle ("Can't play \"" + source->fileName + "\"")
+                                              .withMessage (*playbackRefusal)
+                                              .withButton ("OK", 0)
+                                              .withAssociatedComponent (this),
+                                          nullptr);
     }
     else if (! result.cancelled)
     {

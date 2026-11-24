@@ -122,11 +122,46 @@ void SpectrogramView::timerCallback()
     repaint();
 }
 
-void SpectrogramView::paint (juce::Graphics& g)
+void SpectrogramView::setPlayhead (std::optional<double> fractionOfSource)
 {
-    if (! spectrogram.has_value() || getWidth() <= 0 || getHeight() <= 0)
+    if (fractionOfSource == playhead)
         return;
 
+    repaint (playheadArea (playhead));
+    playhead = fractionOfSource;
+    repaint (playheadArea (playhead));
+}
+
+juce::Rectangle<int> SpectrogramView::playheadArea (std::optional<double> fractionOfSource) const
+{
+    if (! fractionOfSource.has_value())
+        return {};
+
+    // The columns span the whole Source linearly, so the playhead sits at the same fraction of the width.
+    const auto x = juce::roundToInt (juce::jlimit (0.0, 1.0, *fractionOfSource) * getWidth());
+    return { x - 2, 0, 4, getHeight() };
+}
+
+void SpectrogramView::mouseDown (const juce::MouseEvent& event)
+{
+    if (onSeek != nullptr && getWidth() > 0)
+        onSeek (juce::jlimit (0.0, 1.0, (double) event.position.x / getWidth()));
+}
+
+void SpectrogramView::paint (juce::Graphics& g)
+{
+    if (spectrogram.has_value() && getWidth() > 0 && getHeight() > 0)
+        paintSpectrogram (g);
+
+    if (const auto area = playheadArea (playhead); ! area.isEmpty())
+    {
+        g.setColour (juce::Colours::white);
+        g.fillRect (juce::Rectangle<float> ((float) area.getCentreX() - 0.75f, 0.0f, 1.5f, (float) getHeight()));
+    }
+}
+
+void SpectrogramView::paintSpectrogram (juce::Graphics& g)
+{
     const auto scale = g.getInternalContext().getPhysicalPixelScaleFactor();
     const auto width = juce::roundToInt ((float) getWidth() * scale);
     const auto height = juce::roundToInt ((float) getHeight() * scale);
