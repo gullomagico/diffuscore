@@ -2,6 +2,7 @@
 add_library(diffuscore_core STATIC
     AvailableMemory.cpp
     SourceLoading.cpp
+    Spectrogram.cpp
     Version.cpp)
 
 target_include_directories(diffuscore_core PUBLIC
@@ -25,6 +26,7 @@ target_link_libraries(diffuscore_core
         juce::juce_core
         juce::juce_audio_basics
         juce::juce_audio_formats
+        juce::juce_dsp
     PUBLIC
         diffuscore_juce_config
         juce::juce_recommended_config_flags

@@ -39,6 +39,7 @@ juce::String describeChannels (int numChannels)
 MainComponent::MainComponent (juce::ApplicationCommandManager& commandManager)
     : commands (commandManager)
 {
+    addAndMakeVisible (spectrogramView);
     setSize (1000, 600);
 }
 
@@ -74,12 +75,21 @@ void MainComponent::paint (juce::Graphics& g)
         g.setFont (14.0f);
         g.drawFittedText (info, bottomBar.reduced (10, 0), juce::Justification::centredLeft, 1);
     }
+}
 
+void MainComponent::paintOverChildren (juce::Graphics& g)
+{
+    // Over the Spectrogram, which would otherwise hide it.
     if (isDraggingFileOver)
     {
-        g.setColour (lf.findColour (juce::TextButton::buttonOnColourId));
+        g.setColour (getLookAndFeel().findColour (juce::TextButton::buttonOnColourId));
         g.drawRect (getLocalBounds(), 3);
     }
+}
+
+void MainComponent::resized()
+{
+    spectrogramView.setBounds (getLocalBounds().withTrimmedBottom (bottomBarHeight));
 }
 
 juce::ApplicationCommandTarget* MainComponent::getNextCommandTarget()
@@ -202,7 +212,9 @@ void MainComponent::loadingFinished (juce::File file, SourceLoadResult result)
 
     if (result.source != nullptr)
     {
+        spectrogramView.setSource (nullptr); // stops analysing the old Source before it is destroyed
         source = std::move (result.source);
+        spectrogramView.setSource (source.get());
         repaint();
     }
     else if (! result.cancelled)

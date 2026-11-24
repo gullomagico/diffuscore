@@ -8,7 +8,8 @@ target_sources(DiffuScore PRIVATE
     Main.cpp
     MainWindow.cpp
     MainComponent.cpp
-    SourceLoadingWindow.cpp)
+    SourceLoadingWindow.cpp
+    SpectrogramView.cpp)
 
 target_compile_definitions(DiffuScore PRIVATE
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:DiffuScore,JUCE_PRODUCT_NAME>"

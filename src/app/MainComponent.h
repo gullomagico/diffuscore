@@ -1,5 +1,7 @@
 #pragma once
 
+#include "SpectrogramView.h"
+
 #include <SourceLoading.h>
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -9,7 +11,7 @@ namespace diffuscore
 class SourceLoadingWindow;
 
 /** The content of the main window: holds the Source, opens files by menu or drag-and-drop,
-    and shows the Source's details in the bottom bar. */
+    shows the Source's Spectrogram, and its details in the bottom bar. */
 class MainComponent final : public juce::Component,
                             public juce::ApplicationCommandTarget,
                             public juce::FileDragAndDropTarget
@@ -24,6 +26,8 @@ public:
     ~MainComponent() override;
 
     void paint (juce::Graphics& g) override;
+    void paintOverChildren (juce::Graphics& g) override;
+    void resized() override;
 
     // ApplicationCommandTarget
     juce::ApplicationCommandTarget* getNextCommandTarget() override;
@@ -46,6 +50,7 @@ private:
 
     juce::ApplicationCommandManager& commands;
     std::unique_ptr<Source> source;
+    SpectrogramView spectrogramView; // after source: destroyed first, so its analysis stops before the Source goes
     std::unique_ptr<SourceLoadingWindow> loadingWindow;
     std::unique_ptr<juce::FileChooser> fileChooser;
     bool isDraggingFileOver = false;

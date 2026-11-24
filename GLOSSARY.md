@@ -21,3 +21,9 @@ _Avoid_: Setlist, project
 **Channel**:
 One signal of a Source: L and R for stereo, or a single Mono channel.
 _Avoid_: Track, canal
+
+## Display
+
+**Spectrogram**:
+The levels of a whole Source over time and frequency, as shown in the main window. For stereo, the two Channels' energies are added, so material in antiphase between L and R stays visible.
+_Avoid_: Sonogram, waveform
