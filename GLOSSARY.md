@@ -16,6 +16,16 @@ _Avoid_: Track, clip, file, audio
 An ordered collection of Scores, e.g. the movements of a long work or the programme of a concert.
 _Avoid_: Setlist, project
 
+## Modes
+
+**Editor mode**:
+The mode in which the performer builds and changes their Score, typically at home or in rehearsal.
+_Avoid_: Edit view, authoring mode
+
+**Performance mode** _(planned)_:
+The mode in which the performer reads their Score while the Transport plays it to the diffusion desk during the concert. The Score cannot be changed in this mode.
+_Avoid_: Live mode, concert mode, show mode
+
 ## Audio
 
 **Channel**:
@@ -31,6 +41,22 @@ _Avoid_: Player, deck
 **Spectrogram**:
 The levels of a whole Source over time and frequency, as shown in the main window. For stereo, the two Channels' energies are added, so material in antiphase between L and R stays visible.
 _Avoid_: Sonogram, waveform
+
+**Zoom**:
+How much of the Source's duration the Spectrogram shows across its width, from the whole Source down to fine detail. Zoom acts on time only; the frequency axis always shows the full range.
+_Avoid_: Magnification, scale
+
+**Visible Range**:
+The stretch of the Source, from one time to another, that the Spectrogram currently shows.
+_Avoid_: Viewport, window, view, selection
+
+**Follow**:
+The Visible Range keeping the Playhead in view while the Transport plays.
+_Avoid_: Auto-scroll, lock, chase, track
+
+**Overview**:
+The whole Source in miniature, with the Visible Range marked on it.
+_Avoid_: Minimap, navigator
 
 **Playhead**:
 The line over the Spectrogram marking the Transport's position in the Source.
