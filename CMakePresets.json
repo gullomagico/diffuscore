@@ -1,0 +1,95 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 22,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": {
+          "type": "BOOL",
+          "value": "ON"
+        }
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug",
+      "description": "Debug build in build/: assertions and checks, for development",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release",
+      "description": "Optimised build in build-release/",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "relwithdebinfo",
+      "displayName": "RelWithDebInfo",
+      "description": "Optimised build with debug info in build-relwithdebinfo/, for profiling",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build-relwithdebinfo",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "displayName": "Debug",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "release",
+      "displayName": "Release",
+      "configurePreset": "release"
+    },
+    {
+      "name": "relwithdebinfo",
+      "displayName": "RelWithDebInfo",
+      "configurePreset": "relwithdebinfo"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug",
+      "inherits": "base",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "release",
+      "displayName": "Release",
+      "inherits": "base",
+      "configurePreset": "release"
+    },
+    {
+      "name": "relwithdebinfo",
+      "displayName": "RelWithDebInfo",
+      "inherits": "base",
+      "configurePreset": "relwithdebinfo"
+    }
+  ]
+}
