@@ -54,6 +54,10 @@ _Avoid_: Viewport, window, view, selection
 The Visible Range keeping the Playhead in view while the Transport plays.
 _Avoid_: Auto-scroll, lock, chase, track
 
+**Page turn**:
+A style of Follow in which the Visible Range jumps one full width forward when the Playhead reaches its right edge, so the Playhead starts again from the left edge.
+_Avoid_: Paging, page flip, jump scroll
+
 **Overview**:
 The whole Source in miniature, with the Visible Range marked on it.
 _Avoid_: Minimap, navigator
