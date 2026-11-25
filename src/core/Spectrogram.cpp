@@ -73,7 +73,8 @@ std::optional<Spectrogram> analyseSpectrogram (const Source& source, const Spect
     const auto numFrames = std::max (1, (length + hopSize - 1) / hopSize);
 
     Spectrogram result;
-    result.numColumns = std::min (numFrames, maxColumns);
+    result.numColumns = numFrames;
+    result.secondsPerColumn = source.sampleRate > 0.0 ? hopSize / source.sampleRate : 0.0;
     result.numRows = numRows;
     result.levels.resize ((size_t) result.numColumns * (size_t) numRows);
 
@@ -84,36 +85,27 @@ std::optional<Spectrogram> analyseSpectrogram (const Source& source, const Spect
     std::vector<float> fftData ((size_t) fftSize * 2);
     std::vector<double> binPowers ((size_t) numBins);
 
-    int frame = 0;
-
-    for (int column = 0; column < result.numColumns; ++column)
+    for (int frame = 0; frame < numFrames; ++frame)
     {
-        // Columns share out the frames as evenly as possible, and each averages the power of its frames.
-        const auto endFrame = (int) ((juce::int64) (column + 1) * numFrames / result.numColumns);
-        const auto framesInColumn = endFrame - frame;
+        const auto start = frame * hopSize + hopSize / 2 - fftSize / 2;
+        const auto first = std::max (0, start);
+        const auto end = std::min (length, start + fftSize);
         std::fill (binPowers.begin(), binPowers.end(), 0.0);
 
-        for (; frame < endFrame; ++frame)
+        for (int channel = 0; channel < numChannels; ++channel)
         {
-            const auto start = frame * hopSize + hopSize / 2 - fftSize / 2;
-            const auto first = std::max (0, start);
-            const auto end = std::min (length, start + fftSize);
+            std::fill (fftData.begin(), fftData.end(), 0.0f);
 
-            for (int channel = 0; channel < numChannels; ++channel)
-            {
-                std::fill (fftData.begin(), fftData.end(), 0.0f);
+            if (end > first)
+                std::copy (source.samples.getReadPointer (channel, first),
+                           source.samples.getReadPointer (channel, first) + (end - first),
+                           fftData.begin() + (first - start));
 
-                if (end > first)
-                    std::copy (source.samples.getReadPointer (channel, first),
-                                source.samples.getReadPointer (channel, first) + (end - first),
-                                fftData.begin() + (first - start));
+            hann.multiplyWithWindowingTable (fftData.data(), (size_t) fftSize);
+            fft.performFrequencyOnlyForwardTransform (fftData.data(), true);
 
-                hann.multiplyWithWindowingTable (fftData.data(), (size_t) fftSize);
-                fft.performFrequencyOnlyForwardTransform (fftData.data(), true);
-
-                for (int bin = 0; bin < numBins; ++bin)
-                    binPowers[(size_t) bin] += (double) fftData[(size_t) bin] * fftData[(size_t) bin];
-            }
+            for (int bin = 0; bin < numBins; ++bin)
+                binPowers[(size_t) bin] += (double) fftData[(size_t) bin] * fftData[(size_t) bin];
         }
 
         for (int row = 0; row < numRows; ++row)
@@ -122,12 +114,12 @@ std::optional<Spectrogram> analyseSpectrogram (const Source& source, const Spect
             double power = 0.0;
 
             for (int bin = bins.first; bin <= bins.last; ++bin)
-                power = std::max (power, binPowers[(size_t) bin] / framesInColumn);
+                power = std::max (power, binPowers[(size_t) bin]);
 
-            result.levels[(size_t) column * numRows + (size_t) row] = powerToDb (power);
+            result.levels[(size_t) frame * numRows + (size_t) row] = powerToDb (power);
         }
 
-        if (onProgress && ! onProgress ((double) (column + 1) / result.numColumns))
+        if (onProgress && ! onProgress ((double) (frame + 1) / numFrames))
             return std::nullopt;
     }
 

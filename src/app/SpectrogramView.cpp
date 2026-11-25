@@ -2,6 +2,7 @@
 
 #include <array>
 #include <atomic>
+#include <cmath>
 
 namespace diffuscore
 {
@@ -34,6 +35,10 @@ const std::array<juce::PixelARGB, 256>& magma()
 
     return table;
 }
+
+// One wheel notch is roughly 0.1 to 0.2 in JUCE's units, depending on the platform.
+constexpr double zoomPerWheelUnit = 2.0;   // 2^(wheel * this): about 1.2x to 1.3x per notch
+constexpr double movePerWheelUnit = 0.5;   // fraction of the Visible Range's length: about 5 to 10% per notch
 
 juce::PixelARGB colourForLevel (float levelDb)
 {
@@ -82,10 +87,14 @@ void SpectrogramView::setSource (const Source* source)
 {
     stopAnalysis();
     spectrogram.reset();
+    visibleRange.reset();
     image = {};
 
     if (source != nullptr)
     {
+        // Every Source opens zoomed out to the whole Source.
+        visibleRange.emplace (source->getDurationSeconds(), 0.0, 0.0);
+        updateWidths();
         progress = 0.0;
         progressBar.setVisible (true);
         analysis = std::make_unique<AnalysisThread> (*source);
@@ -103,7 +112,7 @@ void SpectrogramView::stopAnalysis()
 
     if (analysis != nullptr)
     {
-        // The analysis checks threadShouldExit() after every column, so it stops within milliseconds.
+        // The analysis checks threadShouldExit() after every frame, so it stops within milliseconds.
         analysis->stopThread (-1);
         analysis.reset();
     }
@@ -120,32 +129,103 @@ void SpectrogramView::timerCallback()
     stopAnalysis();
     spectrogram = std::move (result);
     repaint();
+
+    if (onZoomAvailable != nullptr)
+        onZoomAvailable();
 }
 
-void SpectrogramView::setPlayhead (std::optional<double> fractionOfSource)
+double SpectrogramView::timeAtX (float x) const noexcept
 {
-    if (fractionOfSource == playhead)
+    const auto fraction = getWidth() > 0 ? juce::jlimit (0.0, 1.0, (double) x / getWidth()) : 0.0;
+    return visibleRange.has_value() ? visibleRange->timeAt (fraction) : 0.0;
+}
+
+void SpectrogramView::updateWidths()
+{
+    if (! visibleRange.has_value())
+        return;
+
+    // The display the view is (mostly) on, in the same logical pixels as the view's width.
+    const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (getScreenBounds());
+    const auto displayWidth = display != nullptr ? display->logicalBounds.getWidth() : 0;
+
+    if (getWidth() > 0 && displayWidth > 0)
+        visibleRange->setWidths (getWidth(), displayWidth);
+}
+
+void SpectrogramView::changeVisibleRange (const std::function<void (VisibleRange&)>& change)
+{
+    if (! canZoom())
+        return; // zoom and scroll are unavailable until the analysis has finished
+
+    updateWidths(); // the window may have moved to another display since the last resize
+    change (*visibleRange);
+
+    if (imageRange != visibleRange)
+        repaint();
+}
+
+void SpectrogramView::zoomAroundPlayhead (double factor)
+{
+    changeVisibleRange ([&] (VisibleRange& range) { range.zoomAroundPlayhead (factor, playhead); });
+}
+
+void SpectrogramView::zoomOutToWholeSource()
+{
+    changeVisibleRange ([] (VisibleRange& range) { range.zoomOutToWholeSource(); });
+}
+
+void SpectrogramView::setPlayhead (std::optional<double> secondsInSource)
+{
+    if (secondsInSource == playhead)
         return;
 
     repaint (playheadArea (playhead));
-    playhead = fractionOfSource;
+    playhead = secondsInSource;
     repaint (playheadArea (playhead));
 }
 
-juce::Rectangle<int> SpectrogramView::playheadArea (std::optional<double> fractionOfSource) const
+juce::Rectangle<int> SpectrogramView::playheadArea (std::optional<double> secondsInSource) const
 {
-    if (! fractionOfSource.has_value())
-        return {};
+    if (! secondsInSource.has_value() || ! visibleRange.has_value() || ! visibleRange->contains (*secondsInSource))
+        return {}; // hidden while outside the Visible Range
 
-    // The columns span the whole Source linearly, so the playhead sits at the same fraction of the width.
-    const auto x = juce::roundToInt (juce::jlimit (0.0, 1.0, *fractionOfSource) * getWidth());
+    const auto x = juce::roundToInt (visibleRange->fractionOf (*secondsInSource) * getWidth());
     return { x - 2, 0, 4, getHeight() };
 }
 
 void SpectrogramView::mouseDown (const juce::MouseEvent& event)
 {
     if (onSeek != nullptr && getWidth() > 0)
-        onSeek (juce::jlimit (0.0, 1.0, (double) event.position.x / getWidth()));
+        onSeek (timeAtX (event.position.x));
+}
+
+void SpectrogramView::mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
+{
+    if (! canZoom())
+        return;
+
+    if (event.mods.isCommandDown())
+    {
+        const auto factor = std::pow (2.0, (double) wheel.deltaY * zoomPerWheelUnit);
+        const auto anchor = timeAtX (event.position.x);
+        changeVisibleRange ([&] (VisibleRange& range) { range.zoom (factor, anchor); });
+        return;
+    }
+
+    // Scrolling right or down (negative deltas) moves later in the Source.
+    const auto delta = ! juce::exactlyEqual (wheel.deltaX, 0.0f) ? wheel.deltaX : (event.mods.isShiftDown() ? wheel.deltaY : 0.0f);
+
+    if (! juce::exactlyEqual (delta, 0.0f))
+        changeVisibleRange ([&] (VisibleRange& range) { range.move (-(double) delta * movePerWheelUnit * range.getLength()); });
+    else
+        Component::mouseWheelMove (event, wheel);
+}
+
+void SpectrogramView::mouseMagnify (const juce::MouseEvent& event, float scaleFactor)
+{
+    const auto anchor = timeAtX (event.position.x);
+    changeVisibleRange ([&] (VisibleRange& range) { range.zoom (scaleFactor, anchor); });
 }
 
 void SpectrogramView::paint (juce::Graphics& g)
@@ -166,7 +246,7 @@ void SpectrogramView::paintSpectrogram (juce::Graphics& g)
     const auto width = juce::roundToInt ((float) getWidth() * scale);
     const auto height = juce::roundToInt ((float) getHeight() * scale);
 
-    if (! image.isValid() || image.getWidth() != width || image.getHeight() != height)
+    if (! image.isValid() || image.getWidth() != width || image.getHeight() != height || imageRange != visibleRange)
         render (width, height);
 
     g.drawImage (image, getLocalBounds().toFloat());
@@ -175,21 +255,44 @@ void SpectrogramView::paintSpectrogram (juce::Graphics& g)
 void SpectrogramView::resized()
 {
     progressBar.setBounds (getLocalBounds().withSizeKeepingCentre (juce::jmin (400, getWidth() - 40), 24));
+    updateWidths(); // keeps the Visible Range, re-applying the deepest limit to the new width
 }
 
 void SpectrogramView::render (int width, int height)
 {
     const auto& analysed = *spectrogram;
+    const auto& range = *visibleRange;
     image = juce::Image (juce::Image::ARGB, width, height, false);
+    imageRange = range;
     const juce::Image::BitmapData pixels (image, juce::Image::BitmapData::writeOnly);
 
-    // Each pixel shows the loudest level among the columns and rows it covers, so short or narrow events stay visible.
+    const auto columnAt = [&] (int x)
+    {
+        // The column under the left edge of physical pixel x.
+        const auto seconds = range.timeAt ((double) x / width);
+        return analysed.secondsPerColumn > 0.0 ? (int) std::floor (seconds / analysed.secondsPerColumn) : 0;
+    };
+
+    // Each pixel shows the loudest level among the columns and rows it covers, so short or narrow events
+    // stay visible when zoomed out. Zoomed in, neighbouring pixels share a column and repeat it: plain blocks.
     std::vector<float> columnLevels ((size_t) analysed.numRows);
+    int previousFirst = -1, previousEnd = -1;
 
     for (int x = 0; x < width; ++x)
     {
-        const auto firstColumn = (int) ((juce::int64) x * analysed.numColumns / width);
-        const auto endColumn = std::max (firstColumn + 1, (int) ((juce::int64) (x + 1) * analysed.numColumns / width));
+        const auto firstColumn = juce::jlimit (0, analysed.numColumns - 1, columnAt (x));
+        const auto endColumn = juce::jlimit (firstColumn + 1, analysed.numColumns, columnAt (x + 1));
+
+        if (firstColumn == previousFirst && endColumn == previousEnd)
+        {
+            for (int y = 0; y < height; ++y)
+                *reinterpret_cast<juce::PixelARGB*> (pixels.getPixelPointer (x, y)) = *reinterpret_cast<const juce::PixelARGB*> (pixels.getPixelPointer (x - 1, y));
+
+            continue;
+        }
+
+        previousFirst = firstColumn;
+        previousEnd = endColumn;
         std::fill (columnLevels.begin(), columnLevels.end(), spectrogram::floorDb);
 
         for (int column = firstColumn; column < endColumn; ++column)

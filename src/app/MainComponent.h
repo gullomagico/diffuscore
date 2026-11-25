@@ -28,7 +28,10 @@ public:
         openFile = 0x2000,
         audioSettings,
         playPause,
-        stopPlayback
+        stopPlayback,
+        zoomIn,
+        zoomOut,
+        zoomOutToWholeSource
     };
 
     explicit MainComponent (juce::ApplicationCommandManager& commandManager);
@@ -74,7 +77,7 @@ private:
     void switchDeviceToSourceRate();
     void updatePlayability();
     bool isPlayable() const noexcept { return source != nullptr && ! playbackRefusal.has_value(); }
-    void seekToFractionOfSource (double fraction);
+    void seekToTime (double secondsInSource);
     juce::String describeElapsedAndTotal() const;
     juce::Rectangle<int> getBottomBarArea() const;
 

@@ -3,6 +3,7 @@ add_executable(diffuscore_tests
     SourceLoadingTests.cpp
     SpectrogramTests.cpp
     TransportTests.cpp
+    VisibleRangeTests.cpp
     VersionTests.cpp)
 
 target_link_libraries(diffuscore_tests PRIVATE

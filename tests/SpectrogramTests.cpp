@@ -124,3 +124,18 @@ TEST_CASE ("The analysis reports its progress up to 1 and can be stopped", "[spe
         CHECK (calls == 1);
     }
 }
+
+TEST_CASE ("The Spectrogram has one column per analysis frame, however long the Source", "[spectrogram]")
+{
+    // 9000 hops: more analysis frames than the former cap of 8192 columns allowed.
+    Source source;
+    source.fileName = "long.wav";
+    source.sampleRate = sampleRate;
+    source.samples.setSize (1, 9000 * spectrogram::hopSize);
+    source.samples.clear();
+
+    const auto spectrogram = analyseSpectrogram (source);
+    REQUIRE (spectrogram.has_value());
+    CHECK (spectrogram->numColumns == 9000);
+    CHECK_THAT (spectrogram->secondsPerColumn, WithinULP (2048.0 / 48000.0, 0));
+}

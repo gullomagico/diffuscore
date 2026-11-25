@@ -13,6 +13,7 @@ namespace
 constexpr int bottomBarHeight = 28;
 constexpr int transportButtonWidth = 64;
 constexpr int elapsedTimeWidth = 120;
+constexpr double zoomPerKeyPress = 2.0;
 
 /** Whole seconds, truncated, so the elapsed time reaches the total exactly at the end. */
 juce::String describeDuration (double seconds)
@@ -70,7 +71,8 @@ MainComponent::MainComponent (juce::ApplicationCommandManager& commandManager)
     : commands (commandManager)
 {
     addAndMakeVisible (spectrogramView);
-    spectrogramView.onSeek = [this] (double fraction) { seekToFractionOfSource (fraction); };
+    spectrogramView.onSeek = [this] (double seconds) { seekToTime (seconds); };
+    spectrogramView.onZoomAvailable = [this] { commands.commandStatusChanged(); };
 
     for (auto* button : { &playPauseButton, &stopButton })
     {
@@ -200,10 +202,10 @@ void MainComponent::updatePlayability()
     repaint (getBottomBarArea());
 }
 
-void MainComponent::seekToFractionOfSource (double fraction)
+void MainComponent::seekToTime (double secondsInSource)
 {
     if (isPlayable())
-        transport.seek ((juce::int64) std::llround (fraction * (double) source->getLengthInFrames()));
+        transport.seek ((juce::int64) std::llround (secondsInSource * source->sampleRate));
 }
 
 juce::String MainComponent::describeElapsedAndTotal() const
@@ -228,7 +230,7 @@ void MainComponent::updateTransportDisplay()
         return;
     }
 
-    spectrogramView.setPlayhead ((double) transport.getPosition() / (double) source->getLengthInFrames());
+    spectrogramView.setPlayhead ((double) transport.getPosition() / source->sampleRate);
     playPauseButton.setButtonText (transport.isPlaying() ? "Pause" : "Play");
 
     if (auto text = describeElapsedAndTotal(); text != elapsedAndTotal)
@@ -309,7 +311,7 @@ juce::ApplicationCommandTarget* MainComponent::getNextCommandTarget()
 
 void MainComponent::getAllCommands (juce::Array<juce::CommandID>& ids)
 {
-    ids.addArray ({ openFile, audioSettings, playPause, stopPlayback });
+    ids.addArray ({ openFile, audioSettings, playPause, stopPlayback, zoomIn, zoomOut, zoomOutToWholeSource });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID commandID, juce::ApplicationCommandInfo& result)
@@ -335,6 +337,29 @@ void MainComponent::getCommandInfo (juce::CommandID commandID, juce::Application
         result.setInfo ("Stop", "Stops and returns to the start of the Source", "Transport", 0);
         result.setActive (isPlayable());
     }
+    else if (commandID == zoomIn)
+    {
+        result.setInfo ("Zoom In", "Zooms in around the Playhead, or the centre when the Playhead is off screen", "View", 0);
+        result.addDefaultKeypress ('+', juce::ModifierKeys::noModifiers);
+        result.addDefaultKeypress ('+', juce::ModifierKeys::shiftModifier); // Shift + '=' on US layouts
+        result.addDefaultKeypress ('=', juce::ModifierKeys::noModifiers);
+        result.addDefaultKeypress (juce::KeyPress::numberPadAdd, juce::ModifierKeys::noModifiers);
+        result.setActive (spectrogramView.canZoom());
+    }
+    else if (commandID == zoomOut)
+    {
+        result.setInfo ("Zoom Out", "Zooms out around the Playhead, or the centre when the Playhead is off screen", "View", 0);
+        result.addDefaultKeypress ('-', juce::ModifierKeys::noModifiers);
+        result.addDefaultKeypress (juce::KeyPress::numberPadSubtract, juce::ModifierKeys::noModifiers);
+        result.setActive (spectrogramView.canZoom());
+    }
+    else if (commandID == zoomOutToWholeSource)
+    {
+        result.setInfo ("Zoom Out to Whole Source", "Shows the whole Source", "View", 0);
+        result.addDefaultKeypress ('0', juce::ModifierKeys::noModifiers);
+        result.addDefaultKeypress (juce::KeyPress::numberPad0, juce::ModifierKeys::noModifiers);
+        result.setActive (spectrogramView.canZoom());
+    }
 }
 
 bool MainComponent::perform (const InvocationInfo& info)
@@ -355,6 +380,15 @@ bool MainComponent::perform (const InvocationInfo& info)
         case stopPlayback:
             transport.stop();
             updateTransportDisplay();
+            return true;
+        case zoomIn:
+            spectrogramView.zoomAroundPlayhead (zoomPerKeyPress);
+            return true;
+        case zoomOut:
+            spectrogramView.zoomAroundPlayhead (1.0 / zoomPerKeyPress);
+            return true;
+        case zoomOutToWholeSource:
+            spectrogramView.zoomOutToWholeSource();
             return true;
         default:
             return false;

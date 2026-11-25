@@ -12,7 +12,7 @@ MainWindow::MainWindow (const juce::String& name)
     auto* mainComponent = new MainComponent (commandManager);
     setContentOwned (mainComponent, true);
 
-    // The main component handles File → Open (Ctrl+O), Audio Settings and the Transport (Space),
+    // The main component handles File → Open (Ctrl+O), Audio Settings, the Transport (Space) and Zoom (+, −, 0),
     // then passes other commands on to the application, which handles
     // StandardApplicationCommandIDs::quit (Ctrl+Q).
     commandManager.registerAllCommandsForTarget (mainComponent);
@@ -24,7 +24,7 @@ MainWindow::MainWindow (const juce::String& name)
     setApplicationCommandManagerToWatch (&commandManager);
     setMenuBar (this);
     setResizable (true, true);
-    setResizeLimits (480, 320, 10000, 10000);
+    setResizeLimits (800, 500, 1 << 20, 1 << 20); // no maximum
     centreWithSize (getWidth(), getHeight());
     setVisible (true);
 }
@@ -42,7 +42,7 @@ void MainWindow::closeButtonPressed()
 
 juce::StringArray MainWindow::getMenuBarNames()
 {
-    return { "File", "Transport" };
+    return { "File", "Transport", "View" };
 }
 
 juce::PopupMenu MainWindow::getMenuForIndex (int topLevelMenuIndex, const juce::String&)
@@ -61,6 +61,12 @@ juce::PopupMenu MainWindow::getMenuForIndex (int topLevelMenuIndex, const juce::
     {
         menu.addCommandItem (&commandManager, MainComponent::playPause);
         menu.addCommandItem (&commandManager, MainComponent::stopPlayback);
+    }
+    else if (topLevelMenuIndex == 2)
+    {
+        menu.addCommandItem (&commandManager, MainComponent::zoomIn);
+        menu.addCommandItem (&commandManager, MainComponent::zoomOut);
+        menu.addCommandItem (&commandManager, MainComponent::zoomOutToWholeSource);
     }
 
     return menu;

@@ -14,7 +14,6 @@ namespace spectrogram
 constexpr int fftOrder = 12;
 constexpr int fftSize = 1 << fftOrder; // 4096-point Hann window
 constexpr int hopSize = fftSize / 2;  // Hann windows overlapping by half cover every sample equally
-constexpr int maxColumns = 8192;       // whatever the length: frames are averaged into at most this many columns
 constexpr int numRows = 512;           // frequency rows, log-spaced from lowestFrequency to highestFrequency
 constexpr double lowestFrequency = 20.0;
 constexpr double highestFrequency = 20000.0;
@@ -25,11 +24,11 @@ constexpr float ceilingDb = 0.0f;
 /** The levels of a Source over time and frequency, in dBFS clamped to [floorDb, ceilingDb].
     For stereo, each level is the sum of the two Channels' powers, so L = -R does not cancel out
     (and the same full-scale sine in both Channels reads +3 dB, clamped to 0).
-    Each cell is the strongest FFT bin in its row's band, averaged over the frames in its column:
-    every sample is analysed, and the column count stays bounded by averaging rather than by a longer hop. */
+    Each column is one analysis frame (one hop), and each cell the strongest FFT bin in its row's band. */
 struct Spectrogram
 {
-    int numColumns = 0;            // left to right: the whole Source, from start to end
+    int numColumns = 0;            // left to right: the whole Source, from start to end, one per analysis frame
+    double secondsPerColumn = 0.0; // column c covers [c, c + 1) * secondsPerColumn of the Source
     int numRows = 0;               // bottom to top: lowestFrequency to highestFrequency
     std::vector<float> levels;     // column by column: levels[column * numRows + row]
 
