@@ -70,7 +70,9 @@ void logAudioDeviceError (const juce::String& error)
 MainComponent::MainComponent (juce::ApplicationCommandManager& commandManager)
     : commands (commandManager)
 {
+    addAndMakeVisible (timeRuler);
     addAndMakeVisible (spectrogramView);
+    spectrogramView.onVisibleRangeChanged = [this] { timeRuler.setVisibleRange (spectrogramView.getVisibleRange()); };
     spectrogramView.onSeek = [this] (double seconds) { seekToTime (seconds); };
     spectrogramView.onZoomAvailable = [this] { commands.commandStatusChanged(); };
 
@@ -298,6 +300,7 @@ void MainComponent::resized()
 {
     auto area = getLocalBounds();
     auto bottomBar = area.removeFromBottom (bottomBarHeight).reduced (4, 2);
+    timeRuler.setBounds (area.removeFromTop (TimeRulerView::preferredHeight));
     spectrogramView.setBounds (area);
 
     playPauseButton.setBounds (bottomBar.removeFromLeft (transportButtonWidth));

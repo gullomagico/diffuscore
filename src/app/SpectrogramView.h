@@ -35,6 +35,12 @@ public:
     /** Called on a click with the time in the Source under the mouse, in seconds. */
     std::function<void (double secondsInSource)> onSeek;
 
+    /** Called whenever the Visible Range changes: on a new Source, zoom, scroll or resize. */
+    std::function<void()> onVisibleRangeChanged;
+
+    /** The Visible Range (the whole Source until the analysis has finished), or none without a Source. */
+    const std::optional<VisibleRange>& getVisibleRange() const noexcept { return visibleRange; }
+
     /** Called once the analysis has finished, when zoom becomes available. */
     std::function<void()> onZoomAvailable;
 
@@ -59,6 +65,7 @@ private:
     void stopAnalysis();
     double timeAtX (float x) const noexcept;
     void updateWidths();
+    void notifyVisibleRange();
     void changeVisibleRange (const std::function<void (VisibleRange&)>& change);
     void paintSpectrogram (juce::Graphics& g);
     void render (int width, int height);
@@ -69,6 +76,7 @@ private:
     std::optional<VisibleRange> visibleRange; // the whole Source until the analysis has finished
     juce::Image image;                        // the Spectrogram rendered at the view's size in physical pixels
     std::optional<VisibleRange> imageRange;   // the Visible Range the image was rendered for
+    std::optional<VisibleRange> notifiedRange; // the Visible Range onVisibleRangeChanged last reported
     std::optional<double> playhead;
     double progress = 0.0;
     juce::ProgressBar progressBar { progress };

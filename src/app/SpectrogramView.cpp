@@ -103,6 +103,7 @@ void SpectrogramView::setSource (const Source* source)
     }
 
     repaint();
+    notifyVisibleRange();
 }
 
 void SpectrogramView::stopAnalysis()
@@ -153,6 +154,17 @@ void SpectrogramView::updateWidths()
         visibleRange->setWidths (getWidth(), displayWidth);
 }
 
+void SpectrogramView::notifyVisibleRange()
+{
+    if (notifiedRange == visibleRange)
+        return;
+
+    notifiedRange = visibleRange;
+
+    if (onVisibleRangeChanged != nullptr)
+        onVisibleRangeChanged();
+}
+
 void SpectrogramView::changeVisibleRange (const std::function<void (VisibleRange&)>& change)
 {
     if (! canZoom())
@@ -163,6 +175,8 @@ void SpectrogramView::changeVisibleRange (const std::function<void (VisibleRange
 
     if (imageRange != visibleRange)
         repaint();
+
+    notifyVisibleRange();
 }
 
 void SpectrogramView::zoomAroundPlayhead (double factor)
@@ -256,6 +270,7 @@ void SpectrogramView::resized()
 {
     progressBar.setBounds (getLocalBounds().withSizeKeepingCentre (juce::jmin (400, getWidth() - 40), 24));
     updateWidths(); // keeps the Visible Range, re-applying the deepest limit to the new width
+    notifyVisibleRange();
 }
 
 void SpectrogramView::render (int width, int height)

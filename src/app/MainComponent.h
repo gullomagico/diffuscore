@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SpectrogramView.h"
+#include "TimeRulerView.h"
 
 #include <SourceLoading.h>
 #include <Transport.h>
@@ -13,7 +14,7 @@ namespace diffuscore
 class SourceLoadingWindow;
 
 /** The content of the main window: holds the Source, opens files by menu or drag-and-drop,
-    shows the Source's Spectrogram, and its details in the bottom bar. Owns the audio device,
+    shows the Source's Spectrogram under a time ruler, and its details in the bottom bar. Owns the audio device,
     switched to the Source's sample rate on load (ADR-0002), and plays the Source to it through the Transport. */
 class MainComponent final : public juce::Component,
                             public juce::ApplicationCommandTarget,
@@ -95,6 +96,7 @@ private:
     std::atomic<double> sourceSampleRate { 0.0 }; // for audioDeviceAboutToStart(), whichever thread calls it
     std::optional<juce::String> playbackRefusal;  // why the loaded Source can't play on the current device
     SpectrogramView spectrogramView; // after source: destroyed first, so its analysis stops before the Source goes
+    TimeRulerView timeRuler; // above the Spectrogram, spanning the same x range
     std::unique_ptr<SourceLoadingWindow> loadingWindow;
     std::unique_ptr<juce::FileChooser> fileChooser;
     juce::TextButton playPauseButton { "Play" };
