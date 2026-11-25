@@ -2,6 +2,7 @@ add_executable(diffuscore_tests
     AvailableMemoryTests.cpp
     FollowTests.cpp
     OverviewTests.cpp
+    PreferencesTests.cpp
     SourceLoadingTests.cpp
     SpectrogramTests.cpp
     TimeRulerTests.cpp

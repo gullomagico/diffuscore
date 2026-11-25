@@ -58,6 +58,10 @@ _Avoid_: Auto-scroll, lock, chase, track
 A style of Follow in which the Visible Range jumps one full width forward when the Playhead reaches its right edge, so the Playhead starts again from the left edge.
 _Avoid_: Paging, page flip, jump scroll
 
+**Continuous scrolling**:
+A style of Follow in which the Playhead stays at a fixed position across the width while the Spectrogram moves under it; near the start and end of the Source the Visible Range stops and the Playhead moves instead.
+_Avoid_: Smooth scroll, auto-scroll, chase
+
 **Overview**:
 The whole Source in miniature, with the Visible Range marked on it.
 _Avoid_: Minimap, navigator
@@ -65,3 +69,9 @@ _Avoid_: Minimap, navigator
 **Playhead**:
 The line over the Spectrogram marking the Transport's position in the Source.
 _Avoid_: Cursor, marker
+
+## Customisation
+
+**Preferences**:
+The performer's choices of how DiffuScore behaves where it is a matter of practice or taste (ADR-0004), such as the Follow style and Playhead position, set separately for each mode; saved across launches and changed in the Preferences window.
+_Avoid_: Options, configuration (Audio Settings, the audio device choice, is separate)

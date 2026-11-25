@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 
+#include "PreferencesComponent.h"
 #include "SourceLoadingWindow.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
@@ -98,6 +99,8 @@ MainComponent::MainComponent (juce::ApplicationCommandManager& commandManager)
     followButton.setCommandToTrigger (&commands, toggleFollow, true);
 
     settings.setStorageParameters (settingsFileOptions());
+    preferences = readPreferences (*settings.getUserSettings());
+    applyPreferences();
     initialiseAudioDevice();
 
     setSize (1000, 600);
@@ -105,6 +108,7 @@ MainComponent::MainComponent (juce::ApplicationCommandManager& commandManager)
 
 MainComponent::~MainComponent()
 {
+    delete preferencesWindow.getComponent(); // its content calls back into this component
     stopTimer();
     deviceManager.removeChangeListener (this);
     deviceManager.removeAudioCallback (this);
@@ -145,6 +149,45 @@ void MainComponent::showAudioSettings()
     options.useNativeTitleBar = true;
     options.resizable = true;
     options.launchAsync();
+}
+
+void MainComponent::showPreferences()
+{
+    if (preferencesWindow != nullptr)
+    {
+        preferencesWindow->toFront (true);
+        return;
+    }
+
+    auto content = std::make_unique<PreferencesComponent> (preferences);
+    content->onChange = [this] (const Preferences& changed)
+    {
+        preferences = changed;
+        applyPreferences();
+        savePreferences();
+    };
+
+    juce::DialogWindow::LaunchOptions options;
+    options.content.setOwned (content.release());
+    options.dialogTitle = "Preferences";
+    options.dialogBackgroundColour = getLookAndFeel().findColour (juce::ResizableWindow::backgroundColourId);
+    options.componentToCentreAround = this;
+    options.escapeKeyTriggersCloseButton = true;
+    options.useNativeTitleBar = true;
+    options.resizable = false;
+    preferencesWindow = options.launchAsync();
+}
+
+void MainComponent::applyPreferences()
+{
+    // Editor mode is the only mode so far.
+    spectrogramView.setFollowStyle (preferences.editor.style, preferences.editor.playheadFraction);
+}
+
+void MainComponent::savePreferences()
+{
+    writePreferences (preferences, *settings.getUserSettings());
+    settings.saveIfNeeded();
 }
 
 void MainComponent::audioDeviceIOCallbackWithContext (const float* const*,
@@ -331,7 +374,7 @@ juce::ApplicationCommandTarget* MainComponent::getNextCommandTarget()
 
 void MainComponent::getAllCommands (juce::Array<juce::CommandID>& ids)
 {
-    ids.addArray ({ openFile, audioSettings, playPause, stopPlayback, zoomIn, zoomOut, zoomOutToWholeSource, toggleFollow });
+    ids.addArray ({ openFile, audioSettings, openPreferences, playPause, stopPlayback, zoomIn, zoomOut, zoomOutToWholeSource, toggleFollow });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID commandID, juce::ApplicationCommandInfo& result)
@@ -345,6 +388,11 @@ void MainComponent::getCommandInfo (juce::CommandID commandID, juce::Application
     else if (commandID == audioSettings)
     {
         result.setInfo ("Audio Settings...", "Chooses the audio device and its outputs", "File", 0);
+    }
+    else if (commandID == openPreferences)
+    {
+        result.setInfo ("Preferences...", "Chooses how DiffuScore behaves, such as how Follow moves the Visible Range", "File", 0);
+        result.addDefaultKeypress (',', juce::ModifierKeys::commandModifier);
     }
     else if (commandID == playPause)
     {
@@ -398,6 +446,9 @@ bool MainComponent::perform (const InvocationInfo& info)
             return true;
         case audioSettings:
             showAudioSettings();
+            return true;
+        case openPreferences:
+            showPreferences();
             return true;
         case playPause:
             if (isPlayable())

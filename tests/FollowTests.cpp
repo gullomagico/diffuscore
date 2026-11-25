@@ -154,3 +154,94 @@ TEST_CASE ("Switching Follow on brings the Playhead into view at once", "[follow
         CHECK_THAT (range.getStart(), WithinAbs (120.0, 1e-9));
     }
 }
+
+TEST_CASE ("With continuous scrolling, the Playhead stays at the chosen fraction of the width", "[follow]")
+{
+    auto range = zoomedRange (120.0); // 120 s to 180 s
+
+    SECTION ("One third, the default")
+    {
+        const Follow follow (FollowStyle::continuousScrolling);
+
+        for (const auto playhead : { 200.0, 200.03, 300.0, 50.0 })
+        {
+            follow.followPlayhead (range, playhead);
+            CHECK_THAT (range.fractionOf (playhead), WithinAbs (1.0 / 3.0, 1e-9));
+            CHECK_THAT (range.getLength(), WithinAbs (60.0, 1e-9));
+        }
+    }
+
+    SECTION ("A chosen fraction: 75%")
+    {
+        const Follow follow (FollowStyle::continuousScrolling, 0.75);
+        follow.followPlayhead (range, 300.0);
+        CHECK_THAT (range.getStart(), WithinAbs (255.0, 1e-9));
+        CHECK_THAT (range.getEnd(), WithinAbs (315.0, 1e-9));
+    }
+}
+
+TEST_CASE ("With continuous scrolling, near the start and end the Visible Range stops and the Playhead moves", "[follow]")
+{
+    const Follow follow (FollowStyle::continuousScrolling); // one third: 20 s into a 60 s Visible Range
+    auto range = zoomedRange (120.0);
+
+    SECTION ("Near the start: the Visible Range stays at the start, the Playhead left of one third")
+    {
+        follow.followPlayhead (range, 10.0);
+        CHECK_THAT (range.getStart(), WithinAbs (0.0, 1e-9));
+        CHECK_THAT (range.getEnd(), WithinAbs (60.0, 1e-9));
+        CHECK_THAT (range.fractionOf (10.0), WithinAbs (10.0 / 60.0, 1e-9));
+    }
+
+    SECTION ("Near the end: the Visible Range stays at the end, the Playhead right of one third")
+    {
+        follow.followPlayhead (range, 570.0);
+        CHECK_THAT (range.getStart(), WithinAbs (540.0, 1e-9));
+        CHECK_THAT (range.getEnd(), WithinAbs (600.0, 1e-9));
+        CHECK_THAT (range.fractionOf (570.0), WithinAbs (0.5, 1e-9));
+
+        follow.followPlayhead (range, 600.0); // the end of the Source
+        CHECK_THAT (range.getStart(), WithinAbs (540.0, 1e-9));
+        CHECK_THAT (range.fractionOf (600.0), WithinAbs (1.0, 1e-9));
+    }
+}
+
+TEST_CASE ("The style and the Playhead position can change while Follow runs", "[follow]")
+{
+    Follow follow (FollowStyle::pageTurn);
+    auto range = zoomedRange (120.0); // 120 s to 180 s
+
+    follow.setStyle (FollowStyle::continuousScrolling);
+    follow.followPlayhead (range, 150.0);
+    CHECK_THAT (range.getStart(), WithinAbs (130.0, 1e-9)); // one third
+
+    follow.setPlayheadFraction (0.5);
+    follow.followPlayhead (range, 160.0);
+    CHECK_THAT (range.getStart(), WithinAbs (130.0, 1e-9));
+
+    follow.setStyle (FollowStyle::pageTurn); // a Playhead in view: nothing moves until the right edge
+    follow.followPlayhead (range, 170.0);
+    CHECK_THAT (range.getStart(), WithinAbs (130.0, 1e-9));
+    follow.followPlayhead (range, 190.0);
+    CHECK_THAT (range.getStart(), WithinAbs (190.0, 1e-9));
+}
+
+TEST_CASE ("The Playhead position for continuous scrolling is kept between 10% and 90% of the width", "[follow]")
+{
+    auto range = zoomedRange (120.0);
+
+    SECTION ("Below 10%")
+    {
+        const Follow follow (FollowStyle::continuousScrolling, 0.0);
+        follow.followPlayhead (range, 300.0);
+        CHECK_THAT (range.fractionOf (300.0), WithinAbs (0.1, 1e-9));
+    }
+
+    SECTION ("Above 90%")
+    {
+        Follow follow (FollowStyle::continuousScrolling);
+        follow.setPlayheadFraction (1.0);
+        follow.followPlayhead (range, 300.0);
+        CHECK_THAT (range.fractionOf (300.0), WithinAbs (0.9, 1e-9));
+    }
+}

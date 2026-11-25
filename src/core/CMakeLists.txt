@@ -3,6 +3,7 @@ add_library(diffuscore_core STATIC
     AvailableMemory.cpp
     Follow.cpp
     Overview.cpp
+    Preferences.cpp
     SourceLoading.cpp
     Spectrogram.cpp
     TimeRuler.cpp

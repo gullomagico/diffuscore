@@ -12,7 +12,7 @@ MainWindow::MainWindow (const juce::String& name)
     auto* mainComponent = new MainComponent (commandManager);
     setContentOwned (mainComponent, true);
 
-    // The main component handles File → Open (Ctrl+O), Audio Settings, the Transport (Space) and Zoom (+, −, 0),
+    // The main component handles File → Open (Ctrl+O), Audio Settings, Preferences (Ctrl+,), the Transport (Space) and Zoom (+, −, 0),
     // then passes other commands on to the application, which handles
     // StandardApplicationCommandIDs::quit (Ctrl+Q).
     commandManager.registerAllCommandsForTarget (mainComponent);
@@ -54,6 +54,7 @@ juce::PopupMenu MainWindow::getMenuForIndex (int topLevelMenuIndex, const juce::
         menu.addCommandItem (&commandManager, MainComponent::openFile);
         menu.addSeparator();
         menu.addCommandItem (&commandManager, MainComponent::audioSettings);
+        menu.addCommandItem (&commandManager, MainComponent::openPreferences);
         menu.addSeparator();
         menu.addCommandItem (&commandManager, juce::StandardApplicationCommandIDs::quit);
     }

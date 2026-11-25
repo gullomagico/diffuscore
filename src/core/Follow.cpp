@@ -1,10 +1,18 @@
 #include "Follow.h"
 
+#include <algorithm>
+
 namespace diffuscore
 {
-Follow::Follow (FollowStyle followStyle)
+Follow::Follow (FollowStyle followStyle, double fraction)
     : style (followStyle)
 {
+    setPlayheadFraction (fraction);
+}
+
+void Follow::setPlayheadFraction (double fraction) noexcept
+{
+    playheadFraction = std::clamp (fraction, minPlayheadFraction, maxPlayheadFraction);
 }
 
 void Follow::switchOn (VisibleRange& range, double playheadTime)
@@ -31,6 +39,10 @@ void Follow::followPlayhead (VisibleRange& range, double playheadTime) const
 
             break;
         }
+
+        case FollowStyle::continuousScrolling:
+            range.moveStartTo (playheadTime - playheadFraction * range.getLength());
+            break;
     }
 }
 } // namespace diffuscore

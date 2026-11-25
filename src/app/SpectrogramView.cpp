@@ -180,6 +180,13 @@ void SpectrogramView::setFollowing (bool shouldFollow)
         onFollowingChanged();
 }
 
+void SpectrogramView::setFollowStyle (FollowStyle style, double playheadFraction)
+{
+    follow.setStyle (style);
+    follow.setPlayheadFraction (playheadFraction);
+    followPlayhead();
+}
+
 void SpectrogramView::followPlayhead()
 {
     if (playhead.has_value())

@@ -19,7 +19,7 @@ namespace diffuscore
     On Linux, JUCE delivers neither horizontal scroll nor pinch (ADR-0005): there, Ctrl + wheel (or
     Ctrl + two-finger scroll) zooms and Shift + wheel moves; the handlers below still serve macOS and Windows.
 
-    Follow (page turn) keeps the Playhead in view as it moves. It is on for every new Source; any scroll
+    Follow keeps the Playhead in view as it moves, by page turn or continuous scrolling (setFollowStyle()). It is on for every new Source; any scroll
     or zoom by hand (here, or through the zoom and move functions below) switches it off. */
 class SpectrogramView final : public juce::Component,
                               private juce::Timer
@@ -56,6 +56,10 @@ public:
 
     /** Switches Follow on, bringing the Playhead into view at once, or off. */
     void setFollowing (bool shouldFollow);
+
+    /** Chooses how Follow moves the Visible Range, and where the Playhead stays across the width with
+        continuous scrolling; takes effect at once, even during playback. */
+    void setFollowStyle (FollowStyle style, double playheadFraction);
 
     /** Called when Follow switches on or off, including when a scroll or zoom by hand switches it off. */
     std::function<void()> onFollowingChanged;

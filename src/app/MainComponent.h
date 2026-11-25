@@ -4,6 +4,7 @@
 #include "SpectrogramView.h"
 #include "TimeRulerView.h"
 
+#include <Preferences.h>
 #include <SourceLoading.h>
 #include <Transport.h>
 
@@ -15,7 +16,7 @@ namespace diffuscore
 class SourceLoadingWindow;
 
 /** The content of the main window: holds the Source, opens files by menu or drag-and-drop,
-    shows the Source's Spectrogram under a time ruler and the Overview, following the Playhead (Follow), and its details in the bottom bar. Owns the audio device,
+    shows the Source's Spectrogram under a time ruler and the Overview, following the Playhead (Follow) as the Preferences say, and its details in the bottom bar. Owns the audio device,
     switched to the Source's sample rate on load (ADR-0002), and plays the Source to it through the Transport. */
 class MainComponent final : public juce::Component,
                             public juce::ApplicationCommandTarget,
@@ -34,7 +35,8 @@ public:
         zoomIn,
         zoomOut,
         zoomOutToWholeSource,
-        toggleFollow
+        toggleFollow,
+        openPreferences
     };
 
     explicit MainComponent (juce::ApplicationCommandManager& commandManager);
@@ -77,6 +79,9 @@ private:
     void initialiseAudioDevice();
     void saveAudioDeviceSettings();
     void showAudioSettings();
+    void showPreferences();
+    void applyPreferences();
+    void savePreferences();
     void switchDeviceToSourceRate();
     void updatePlayability();
     bool isPlayable() const noexcept { return source != nullptr && ! playbackRefusal.has_value(); }
@@ -92,6 +97,7 @@ private:
 
     juce::ApplicationCommandManager& commands;
     juce::ApplicationProperties settings;
+    Preferences preferences; // as read from settings, then as changed in the Preferences window
     juce::AudioDeviceManager deviceManager;
     std::unique_ptr<Source> source;
     Transport transport;                         // plays source; the audio callback is removed whenever source changes
@@ -102,6 +108,7 @@ private:
     OverviewView overview;   // above the time ruler; after spectrogramView, so destroyed before the Spectrogram it shows
     std::unique_ptr<SourceLoadingWindow> loadingWindow;
     std::unique_ptr<juce::FileChooser> fileChooser;
+    juce::Component::SafePointer<juce::DialogWindow> preferencesWindow; // at most one; closed with this component
     juce::TextButton playPauseButton { "Play" };
     juce::TextButton stopButton { "Stop" };
     juce::TextButton followButton { "Follow" }; // lit while Follow is on
