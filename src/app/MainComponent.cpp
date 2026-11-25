@@ -84,9 +84,10 @@ MainComponent::MainComponent (juce::ApplicationCommandManager& commandManager)
         overview.setSpectrogram (spectrogramView.getSpectrogram());
         commands.commandStatusChanged(); // zoom becomes available, or not
     };
+    spectrogramView.onFollowingChanged = [this] { commands.commandStatusChanged(); }; // updates the Follow button and menu tick
     overview.onMoveVisibleRange = [this] (double startSeconds) { spectrogramView.moveVisibleRangeTo (startSeconds); };
 
-    for (auto* button : { &playPauseButton, &stopButton })
+    for (auto* button : { &playPauseButton, &stopButton, &followButton })
     {
         button->setWantsKeyboardFocus (false); // Space is the Play/Pause key, not a button click
         addAndMakeVisible (button);
@@ -94,6 +95,7 @@ MainComponent::MainComponent (juce::ApplicationCommandManager& commandManager)
 
     playPauseButton.setCommandToTrigger (&commands, playPause, true);
     stopButton.setCommandToTrigger (&commands, stopPlayback, true);
+    followButton.setCommandToTrigger (&commands, toggleFollow, true);
 
     settings.setStorageParameters (settingsFileOptions());
     initialiseAudioDevice();
@@ -281,7 +283,7 @@ void MainComponent::paint (juce::Graphics& g)
 
     if (source != nullptr)
     {
-        auto textArea = bottomBar.withTrimmedLeft (2 * transportButtonWidth + 8);
+        auto textArea = bottomBar.withLeft (followButton.getRight() + 4); // right of the transport buttons
         const auto timeArea = textArea.removeFromLeft (elapsedTimeWidth);
 
         auto info = source->fileName
@@ -319,6 +321,7 @@ void MainComponent::resized()
 
     playPauseButton.setBounds (bottomBar.removeFromLeft (transportButtonWidth));
     stopButton.setBounds (bottomBar.removeFromLeft (transportButtonWidth).withTrimmedLeft (4));
+    followButton.setBounds (bottomBar.removeFromLeft (transportButtonWidth).withTrimmedLeft (4));
 }
 
 juce::ApplicationCommandTarget* MainComponent::getNextCommandTarget()
@@ -328,7 +331,7 @@ juce::ApplicationCommandTarget* MainComponent::getNextCommandTarget()
 
 void MainComponent::getAllCommands (juce::Array<juce::CommandID>& ids)
 {
-    ids.addArray ({ openFile, audioSettings, playPause, stopPlayback, zoomIn, zoomOut, zoomOutToWholeSource });
+    ids.addArray ({ openFile, audioSettings, playPause, stopPlayback, zoomIn, zoomOut, zoomOutToWholeSource, toggleFollow });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID commandID, juce::ApplicationCommandInfo& result)
@@ -377,6 +380,13 @@ void MainComponent::getCommandInfo (juce::CommandID commandID, juce::Application
         result.addDefaultKeypress (juce::KeyPress::numberPad0, juce::ModifierKeys::noModifiers);
         result.setActive (spectrogramView.canZoom());
     }
+    else if (commandID == toggleFollow)
+    {
+        result.setInfo ("Follow", "Keeps the Playhead in view while the Transport plays", "View", 0);
+        result.addDefaultKeypress ('f', juce::ModifierKeys::noModifiers);
+        result.setTicked (spectrogramView.isFollowing());
+        result.setActive (source != nullptr);
+    }
 }
 
 bool MainComponent::perform (const InvocationInfo& info)
@@ -406,6 +416,9 @@ bool MainComponent::perform (const InvocationInfo& info)
             return true;
         case zoomOutToWholeSource:
             spectrogramView.zoomOutToWholeSource();
+            return true;
+        case toggleFollow:
+            spectrogramView.setFollowing (! spectrogramView.isFollowing());
             return true;
         default:
             return false;

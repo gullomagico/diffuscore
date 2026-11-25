@@ -67,6 +67,8 @@ juce::PopupMenu MainWindow::getMenuForIndex (int topLevelMenuIndex, const juce::
         menu.addCommandItem (&commandManager, MainComponent::zoomIn);
         menu.addCommandItem (&commandManager, MainComponent::zoomOut);
         menu.addCommandItem (&commandManager, MainComponent::zoomOutToWholeSource);
+        menu.addSeparator();
+        menu.addCommandItem (&commandManager, MainComponent::toggleFollow);
     }
 
     return menu;

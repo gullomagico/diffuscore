@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Follow.h>
 #include <Spectrogram.h>
 #include <VisibleRange.h>
 
@@ -16,7 +17,10 @@ namespace diffuscore
     Visible Range. Until then, the Playhead and clicks map over the whole Source.
 
     On Linux, JUCE delivers neither horizontal scroll nor pinch (ADR-0005): there, Ctrl + wheel (or
-    Ctrl + two-finger scroll) zooms and Shift + wheel moves; the handlers below still serve macOS and Windows. */
+    Ctrl + two-finger scroll) zooms and Shift + wheel moves; the handlers below still serve macOS and Windows.
+
+    Follow (page turn) keeps the Playhead in view as it moves. It is on for every new Source; any scroll
+    or zoom by hand (here, or through the zoom and move functions below) switches it off. */
 class SpectrogramView final : public juce::Component,
                               private juce::Timer
 {
@@ -29,7 +33,7 @@ public:
     void setSource (const Source* source);
 
     /** Moves the Playhead to this time in the Source, in seconds, or hides it.
-        It is also hidden while outside the Visible Range. */
+        It is also hidden while outside the Visible Range; with Follow on, the Visible Range moves to show it. */
     void setPlayhead (std::optional<double> secondsInSource);
 
     /** Called on a click with the time in the Source under the mouse, in seconds. */
@@ -47,6 +51,14 @@ public:
 
     /** The analysed Spectrogram, or nullptr until the analysis has finished. Valid until onSpectrogramChanged. */
     const Spectrogram* getSpectrogram() const noexcept { return spectrogram.has_value() ? &*spectrogram : nullptr; }
+
+    bool isFollowing() const noexcept { return follow.isOn(); }
+
+    /** Switches Follow on, bringing the Playhead into view at once, or off. */
+    void setFollowing (bool shouldFollow);
+
+    /** Called when Follow switches on or off, including when a scroll or zoom by hand switches it off. */
+    std::function<void()> onFollowingChanged;
 
     bool canZoom() const noexcept { return visibleRange.has_value() && spectrogram.has_value(); }
 
@@ -75,6 +87,8 @@ private:
     void updateWidths();
     void notifyVisibleRange();
     void changeVisibleRange (const std::function<void (VisibleRange&)>& change);
+    void changeVisibleRangeByHand (const std::function<void (VisibleRange&)>& change);
+    void followPlayhead();
     void paintSpectrogram (juce::Graphics& g);
     juce::Rectangle<int> playheadArea (std::optional<double> secondsInSource) const;
 
@@ -85,6 +99,7 @@ private:
     std::optional<VisibleRange> imageRange;   // the Visible Range the image was rendered for
     std::optional<VisibleRange> notifiedRange; // the Visible Range onVisibleRangeChanged last reported
     std::optional<double> playhead;
+    Follow follow { FollowStyle::pageTurn };
     double progress = 0.0;
     juce::ProgressBar progressBar { progress };
 

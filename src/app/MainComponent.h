@@ -15,7 +15,7 @@ namespace diffuscore
 class SourceLoadingWindow;
 
 /** The content of the main window: holds the Source, opens files by menu or drag-and-drop,
-    shows the Source's Spectrogram under a time ruler and the Overview, and its details in the bottom bar. Owns the audio device,
+    shows the Source's Spectrogram under a time ruler and the Overview, following the Playhead (Follow), and its details in the bottom bar. Owns the audio device,
     switched to the Source's sample rate on load (ADR-0002), and plays the Source to it through the Transport. */
 class MainComponent final : public juce::Component,
                             public juce::ApplicationCommandTarget,
@@ -33,7 +33,8 @@ public:
         stopPlayback,
         zoomIn,
         zoomOut,
-        zoomOutToWholeSource
+        zoomOutToWholeSource,
+        toggleFollow
     };
 
     explicit MainComponent (juce::ApplicationCommandManager& commandManager);
@@ -103,6 +104,7 @@ private:
     std::unique_ptr<juce::FileChooser> fileChooser;
     juce::TextButton playPauseButton { "Play" };
     juce::TextButton stopButton { "Stop" };
+    juce::TextButton followButton { "Follow" }; // lit while Follow is on
     juce::String elapsedAndTotal;
     bool isDraggingFileOver = false;
     bool isConfirmingReplace = false;

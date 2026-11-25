@@ -56,6 +56,7 @@ void SpectrogramView::setSource (const Source* source)
     spectrogram.reset();
     visibleRange.reset();
     image = {};
+    setFollowing (true); // on for every Source, before the new Visible Range exists, so nothing moves
 
     if (source != nullptr)
     {
@@ -149,19 +150,55 @@ void SpectrogramView::changeVisibleRange (const std::function<void (VisibleRange
     notifyVisibleRange();
 }
 
+void SpectrogramView::changeVisibleRangeByHand (const std::function<void (VisibleRange&)>& change)
+{
+    if (! canZoom())
+        return;
+
+    setFollowing (false);
+    changeVisibleRange (change);
+}
+
+void SpectrogramView::setFollowing (bool shouldFollow)
+{
+    if (shouldFollow == follow.isOn())
+        return;
+
+    if (shouldFollow)
+    {
+        if (canZoom() && playhead.has_value())
+            changeVisibleRange ([this] (VisibleRange& range) { follow.switchOn (range, *playhead); });
+        else
+            follow.switchOn(); // nothing to bring into view yet
+    }
+    else
+    {
+        follow.switchOff();
+    }
+
+    if (onFollowingChanged != nullptr)
+        onFollowingChanged();
+}
+
+void SpectrogramView::followPlayhead()
+{
+    if (playhead.has_value())
+        changeVisibleRange ([this] (VisibleRange& range) { follow.followPlayhead (range, *playhead); });
+}
+
 void SpectrogramView::zoomAroundPlayhead (double factor)
 {
-    changeVisibleRange ([&] (VisibleRange& range) { range.zoomAroundPlayhead (factor, playhead); });
+    changeVisibleRangeByHand ([&] (VisibleRange& range) { range.zoomAroundPlayhead (factor, playhead); });
 }
 
 void SpectrogramView::moveVisibleRangeTo (double startSeconds)
 {
-    changeVisibleRange ([&] (VisibleRange& range) { range.moveStartTo (startSeconds); });
+    changeVisibleRangeByHand ([&] (VisibleRange& range) { range.moveStartTo (startSeconds); });
 }
 
 void SpectrogramView::zoomOutToWholeSource()
 {
-    changeVisibleRange ([] (VisibleRange& range) { range.zoomOutToWholeSource(); });
+    changeVisibleRangeByHand ([] (VisibleRange& range) { range.zoomOutToWholeSource(); });
 }
 
 void SpectrogramView::setPlayhead (std::optional<double> secondsInSource)
@@ -171,6 +208,7 @@ void SpectrogramView::setPlayhead (std::optional<double> secondsInSource)
 
     repaint (playheadArea (playhead));
     playhead = secondsInSource;
+    followPlayhead();
     repaint (playheadArea (playhead));
 }
 
@@ -198,7 +236,7 @@ void SpectrogramView::mouseWheelMove (const juce::MouseEvent& event, const juce:
     {
         const auto factor = std::pow (2.0, (double) wheel.deltaY * zoomPerWheelUnit);
         const auto anchor = timeAtX (event.position.x);
-        changeVisibleRange ([&] (VisibleRange& range) { range.zoom (factor, anchor); });
+        changeVisibleRangeByHand ([&] (VisibleRange& range) { range.zoom (factor, anchor); });
         return;
     }
 
@@ -206,7 +244,7 @@ void SpectrogramView::mouseWheelMove (const juce::MouseEvent& event, const juce:
     const auto delta = ! juce::exactlyEqual (wheel.deltaX, 0.0f) ? wheel.deltaX : (event.mods.isShiftDown() ? wheel.deltaY : 0.0f);
 
     if (! juce::exactlyEqual (delta, 0.0f))
-        changeVisibleRange ([&] (VisibleRange& range) { range.move (-(double) delta * movePerWheelUnit * range.getLength()); });
+        changeVisibleRangeByHand ([&] (VisibleRange& range) { range.move (-(double) delta * movePerWheelUnit * range.getLength()); });
     else
         Component::mouseWheelMove (event, wheel);
 }
@@ -214,7 +252,7 @@ void SpectrogramView::mouseWheelMove (const juce::MouseEvent& event, const juce:
 void SpectrogramView::mouseMagnify (const juce::MouseEvent& event, float scaleFactor)
 {
     const auto anchor = timeAtX (event.position.x);
-    changeVisibleRange ([&] (VisibleRange& range) { range.zoom (scaleFactor, anchor); });
+    changeVisibleRangeByHand ([&] (VisibleRange& range) { range.zoom (scaleFactor, anchor); });
 }
 
 void SpectrogramView::paint (juce::Graphics& g)
