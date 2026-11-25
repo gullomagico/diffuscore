@@ -46,6 +46,12 @@ void VisibleRange::move (double seconds)
     keepWithinSource();
 }
 
+void VisibleRange::moveStartTo (double time)
+{
+    start = time;
+    keepWithinSource();
+}
+
 void VisibleRange::setLengthAround (double newLength, double anchorTime)
 {
     const auto anchorFraction = fractionOf (anchorTime);

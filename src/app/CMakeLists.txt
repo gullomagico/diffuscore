@@ -8,7 +8,9 @@ target_sources(DiffuScore PRIVATE
     Main.cpp
     MainWindow.cpp
     MainComponent.cpp
+    OverviewView.cpp
     SourceLoadingWindow.cpp
+    SpectrogramImage.cpp
     SpectrogramView.cpp
     TimeRulerView.cpp)
 

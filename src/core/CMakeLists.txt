@@ -1,6 +1,7 @@
 # Logic with no GUI and no audio device. Must never depend on a juce_gui_* module.
 add_library(diffuscore_core STATIC
     AvailableMemory.cpp
+    Overview.cpp
     SourceLoading.cpp
     Spectrogram.cpp
     TimeRuler.cpp

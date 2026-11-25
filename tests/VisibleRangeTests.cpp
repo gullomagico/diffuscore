@@ -175,3 +175,38 @@ TEST_CASE ("Zooming around the Playhead uses the centre when the Playhead is off
         CHECK_THAT (range.getEnd(), WithinAbs (325.0, 1e-9));
     }
 }
+
+TEST_CASE ("Centring the Visible Range on a time keeps its length and stays within the Source", "[visible range]")
+{
+    VisibleRange range (600.0, viewWidth, displayWidth);
+    range.zoom (10.0, 300.0); // 60 s wide
+
+    range.centreOn (100.0);
+    CHECK_THAT (range.getStart(), WithinAbs (70.0, 1e-9));
+    CHECK_THAT (range.getEnd(), WithinAbs (130.0, 1e-9));
+
+    range.centreOn (10.0);
+    CHECK_THAT (range.getStart(), WithinAbs (0.0, 1e-9));
+    CHECK_THAT (range.getEnd(), WithinAbs (60.0, 1e-9));
+
+    range.centreOn (590.0);
+    CHECK_THAT (range.getStart(), WithinAbs (540.0, 1e-9));
+    CHECK_THAT (range.getEnd(), WithinAbs (600.0, 1e-9));
+}
+
+TEST_CASE ("Moving the start of the Visible Range to a time keeps its length and stays within the Source", "[visible range]")
+{
+    VisibleRange range (600.0, viewWidth, displayWidth);
+    range.zoom (10.0, 300.0); // 60 s wide
+
+    range.moveStartTo (200.0);
+    CHECK_THAT (range.getStart(), WithinAbs (200.0, 1e-9));
+    CHECK_THAT (range.getEnd(), WithinAbs (260.0, 1e-9));
+
+    range.moveStartTo (-5.0);
+    CHECK_THAT (range.getStart(), WithinAbs (0.0, 1e-9));
+
+    range.moveStartTo (570.0);
+    CHECK_THAT (range.getStart(), WithinAbs (540.0, 1e-9));
+    CHECK_THAT (range.getEnd(), WithinAbs (600.0, 1e-9));
+}

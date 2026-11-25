@@ -1,6 +1,7 @@
 #include "SpectrogramView.h"
 
-#include <array>
+#include "SpectrogramImage.h"
+
 #include <atomic>
 #include <cmath>
 
@@ -8,43 +9,9 @@ namespace diffuscore
 {
 namespace
 {
-/** A polynomial fit of matplotlib's magma (within 5/255 per component), sampled into a lookup table. */
-const std::array<juce::PixelARGB, 256>& magma()
-{
-    static const auto table = []
-    {
-        std::array<juce::PixelARGB, 256> colours;
-
-        for (size_t i = 0; i < colours.size(); ++i)
-        {
-            const auto t = (double) i / (double) (colours.size() - 1);
-            const auto component = [t] (std::array<double, 7> c)
-            {
-                const auto value = c[0] + t * (c[1] + t * (c[2] + t * (c[3] + t * (c[4] + t * (c[5] + t * c[6])))));
-                return (juce::uint8) juce::roundToInt (juce::jlimit (0.0, 1.0, value) * 255.0);
-            };
-
-            colours[i] = juce::PixelARGB (255,
-                                          component ({ -0.002136485, 0.2516605407, 8.3537172792, -27.6687330858, 52.1761398123, -50.7685253647, 18.6557050659 }),
-                                          component ({ -0.000749655, 0.6775232437, -3.5777195150, 14.2647307810, -27.9436060717, 29.0465828213, -11.4897735200 }),
-                                          component ({ -0.005386128, 2.4940265993, 0.3144679030, -13.6492131881, 12.9441694424, 4.2341529938, -5.6019615087 }));
-        }
-
-        return colours;
-    }();
-
-    return table;
-}
-
 // One wheel notch is roughly 0.1 to 0.2 in JUCE's units, depending on the platform.
 constexpr double zoomPerWheelUnit = 2.0;   // 2^(wheel * this): about 1.2x to 1.3x per notch
 constexpr double movePerWheelUnit = 0.5;   // fraction of the Visible Range's length: about 5 to 10% per notch
-
-juce::PixelARGB colourForLevel (float levelDb)
-{
-    const auto position = (levelDb - spectrogram::floorDb) / (spectrogram::ceilingDb - spectrogram::floorDb);
-    return magma()[(size_t) juce::jlimit (0, 255, juce::roundToInt (position * 255.0f))];
-}
 } // namespace
 
 class SpectrogramView::AnalysisThread final : public juce::Thread
@@ -104,6 +71,9 @@ void SpectrogramView::setSource (const Source* source)
 
     repaint();
     notifyVisibleRange();
+
+    if (onSpectrogramChanged != nullptr)
+        onSpectrogramChanged();
 }
 
 void SpectrogramView::stopAnalysis()
@@ -131,8 +101,8 @@ void SpectrogramView::timerCallback()
     spectrogram = std::move (result);
     repaint();
 
-    if (onZoomAvailable != nullptr)
-        onZoomAvailable();
+    if (onSpectrogramChanged != nullptr)
+        onSpectrogramChanged();
 }
 
 double SpectrogramView::timeAtX (float x) const noexcept
@@ -182,6 +152,11 @@ void SpectrogramView::changeVisibleRange (const std::function<void (VisibleRange
 void SpectrogramView::zoomAroundPlayhead (double factor)
 {
     changeVisibleRange ([&] (VisibleRange& range) { range.zoomAroundPlayhead (factor, playhead); });
+}
+
+void SpectrogramView::moveVisibleRangeTo (double startSeconds)
+{
+    changeVisibleRange ([&] (VisibleRange& range) { range.moveStartTo (startSeconds); });
 }
 
 void SpectrogramView::zoomOutToWholeSource()
@@ -261,7 +236,10 @@ void SpectrogramView::paintSpectrogram (juce::Graphics& g)
     const auto height = juce::roundToInt ((float) getHeight() * scale);
 
     if (! image.isValid() || image.getWidth() != width || image.getHeight() != height || imageRange != visibleRange)
-        render (width, height);
+    {
+        image = renderSpectrogramImage (*spectrogram, *visibleRange, width, height);
+        imageRange = visibleRange;
+    }
 
     g.drawImage (image, getLocalBounds().toFloat());
 }
@@ -271,61 +249,5 @@ void SpectrogramView::resized()
     progressBar.setBounds (getLocalBounds().withSizeKeepingCentre (juce::jmin (400, getWidth() - 40), 24));
     updateWidths(); // keeps the Visible Range, re-applying the deepest limit to the new width
     notifyVisibleRange();
-}
-
-void SpectrogramView::render (int width, int height)
-{
-    const auto& analysed = *spectrogram;
-    const auto& range = *visibleRange;
-    image = juce::Image (juce::Image::ARGB, width, height, false);
-    imageRange = range;
-    const juce::Image::BitmapData pixels (image, juce::Image::BitmapData::writeOnly);
-
-    const auto columnAt = [&] (int x)
-    {
-        // The column under the left edge of physical pixel x.
-        const auto seconds = range.timeAt ((double) x / width);
-        return analysed.secondsPerColumn > 0.0 ? (int) std::floor (seconds / analysed.secondsPerColumn) : 0;
-    };
-
-    // Each pixel shows the loudest level among the columns and rows it covers, so short or narrow events
-    // stay visible when zoomed out. Zoomed in, neighbouring pixels share a column and repeat it: plain blocks.
-    std::vector<float> columnLevels ((size_t) analysed.numRows);
-    int previousFirst = -1, previousEnd = -1;
-
-    for (int x = 0; x < width; ++x)
-    {
-        const auto firstColumn = juce::jlimit (0, analysed.numColumns - 1, columnAt (x));
-        const auto endColumn = juce::jlimit (firstColumn + 1, analysed.numColumns, columnAt (x + 1));
-
-        if (firstColumn == previousFirst && endColumn == previousEnd)
-        {
-            for (int y = 0; y < height; ++y)
-                *reinterpret_cast<juce::PixelARGB*> (pixels.getPixelPointer (x, y)) = *reinterpret_cast<const juce::PixelARGB*> (pixels.getPixelPointer (x - 1, y));
-
-            continue;
-        }
-
-        previousFirst = firstColumn;
-        previousEnd = endColumn;
-        std::fill (columnLevels.begin(), columnLevels.end(), spectrogram::floorDb);
-
-        for (int column = firstColumn; column < endColumn; ++column)
-            for (int row = 0; row < analysed.numRows; ++row)
-                columnLevels[(size_t) row] = std::max (columnLevels[(size_t) row], analysed.getLevel (column, row));
-
-        for (int y = 0; y < height; ++y)
-        {
-            const auto fromBottom = height - 1 - y;
-            const auto firstRow = fromBottom * analysed.numRows / height;
-            const auto endRow = std::max (firstRow + 1, (fromBottom + 1) * analysed.numRows / height);
-            auto level = spectrogram::floorDb;
-
-            for (int row = firstRow; row < endRow; ++row)
-                level = std::max (level, columnLevels[(size_t) row]);
-
-            *reinterpret_cast<juce::PixelARGB*> (pixels.getPixelPointer (x, y)) = colourForLevel (level);
-        }
-    }
 }
 } // namespace diffuscore

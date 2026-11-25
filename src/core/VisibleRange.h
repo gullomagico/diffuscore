@@ -40,6 +40,14 @@ public:
     /** Moves by this many seconds (negative = towards the start), stopping at the start and end of the Source. */
     void move (double seconds);
 
+    /** Moves so it starts at this time, keeping its length, stopping at the start and end of the Source. */
+    void moveStartTo (double time);
+
+    /** Moves so its centre is at this time, keeping its length, stopping at the start and end of the Source. */
+    void centreOn (double time) { moveStartTo (time - length / 2.0); }
+
+    double getSourceDuration() const noexcept { return sourceDuration; }
+
     /** The time at this fraction of the view's width (0 = left edge, 1 = right edge). */
     double timeAt (double fractionOfView) const noexcept { return start + fractionOfView * length; }
 

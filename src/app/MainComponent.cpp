@@ -70,11 +70,21 @@ void logAudioDeviceError (const juce::String& error)
 MainComponent::MainComponent (juce::ApplicationCommandManager& commandManager)
     : commands (commandManager)
 {
+    addAndMakeVisible (overview);
     addAndMakeVisible (timeRuler);
     addAndMakeVisible (spectrogramView);
-    spectrogramView.onVisibleRangeChanged = [this] { timeRuler.setVisibleRange (spectrogramView.getVisibleRange()); };
+    spectrogramView.onVisibleRangeChanged = [this]
+    {
+        timeRuler.setVisibleRange (spectrogramView.getVisibleRange());
+        overview.setVisibleRange (spectrogramView.getVisibleRange());
+    };
     spectrogramView.onSeek = [this] (double seconds) { seekToTime (seconds); };
-    spectrogramView.onZoomAvailable = [this] { commands.commandStatusChanged(); };
+    spectrogramView.onSpectrogramChanged = [this]
+    {
+        overview.setSpectrogram (spectrogramView.getSpectrogram());
+        commands.commandStatusChanged(); // zoom becomes available, or not
+    };
+    overview.onMoveVisibleRange = [this] (double startSeconds) { spectrogramView.moveVisibleRangeTo (startSeconds); };
 
     for (auto* button : { &playPauseButton, &stopButton })
     {
@@ -229,10 +239,13 @@ void MainComponent::updateTransportDisplay()
     if (source == nullptr || source->getLengthInFrames() == 0)
     {
         spectrogramView.setPlayhead (std::nullopt);
+        overview.setPlayhead (std::nullopt);
         return;
     }
 
-    spectrogramView.setPlayhead ((double) transport.getPosition() / source->sampleRate);
+    const auto playhead = (double) transport.getPosition() / source->sampleRate;
+    spectrogramView.setPlayhead (playhead);
+    overview.setPlayhead (playhead);
     playPauseButton.setButtonText (transport.isPlaying() ? "Pause" : "Play");
 
     if (auto text = describeElapsedAndTotal(); text != elapsedAndTotal)
@@ -300,6 +313,7 @@ void MainComponent::resized()
 {
     auto area = getLocalBounds();
     auto bottomBar = area.removeFromBottom (bottomBarHeight).reduced (4, 2);
+    overview.setBounds (area.removeFromTop (OverviewView::preferredHeight));
     timeRuler.setBounds (area.removeFromTop (TimeRulerView::preferredHeight));
     spectrogramView.setBounds (area);
 

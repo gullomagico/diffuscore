@@ -41,8 +41,12 @@ public:
     /** The Visible Range (the whole Source until the analysis has finished), or none without a Source. */
     const std::optional<VisibleRange>& getVisibleRange() const noexcept { return visibleRange; }
 
-    /** Called once the analysis has finished, when zoom becomes available. */
-    std::function<void()> onZoomAvailable;
+    /** Called when the analysed Spectrogram appears or goes: once the analysis has finished (when zoom
+        becomes available), and on a new Source. */
+    std::function<void()> onSpectrogramChanged;
+
+    /** The analysed Spectrogram, or nullptr until the analysis has finished. Valid until onSpectrogramChanged. */
+    const Spectrogram* getSpectrogram() const noexcept { return spectrogram.has_value() ? &*spectrogram : nullptr; }
 
     bool canZoom() const noexcept { return visibleRange.has_value() && spectrogram.has_value(); }
 
@@ -51,6 +55,10 @@ public:
     void zoomAroundPlayhead (double factor);
 
     void zoomOutToWholeSource();
+
+    /** Moves the Visible Range, keeping its length, so it starts at this time (stopping at the ends of the
+        Source), as scrolling by hand does. Does nothing until zoom is available. */
+    void moveVisibleRangeTo (double startSeconds);
 
     void paint (juce::Graphics& g) override;
     void resized() override;
@@ -68,7 +76,6 @@ private:
     void notifyVisibleRange();
     void changeVisibleRange (const std::function<void (VisibleRange&)>& change);
     void paintSpectrogram (juce::Graphics& g);
-    void render (int width, int height);
     juce::Rectangle<int> playheadArea (std::optional<double> secondsInSource) const;
 
     std::unique_ptr<AnalysisThread> analysis;
