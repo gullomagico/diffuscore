@@ -39,7 +39,7 @@ _Avoid_: Player, deck
 ## Display
 
 **Spectrogram**:
-The levels of a whole Source over time and frequency, as shown in the main window. For stereo, the two Channels' energies are added, so material in antiphase between L and R stays visible.
+The levels of a whole Source over time and frequency, as shown in the main window. For stereo, the two Channels' energies are added, so material in antiphase between L and R stays visible. Frequency runs bottom to top from 20 Hz to 20 kHz on a mel scale (see ADR-0006).
 _Avoid_: Sonogram, waveform
 
 **Zoom**:

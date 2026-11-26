@@ -12,13 +12,28 @@ using namespace spectrogram;
 
 constexpr int numBins = fftSize / 2 + 1; // DC to Nyquist
 
+/** The mel scale (O'Shaughnessy's formula): roughly linear below 700 Hz and logarithmic above. */
+double frequencyToMel (double frequency)
+{
+    return 2595.0 * std::log10 (1.0 + frequency / 700.0);
+}
+
+double melToFrequency (double mel)
+{
+    return 700.0 * (std::pow (10.0, mel / 2595.0) - 1.0);
+}
+
+double lowestMel() { return frequencyToMel (lowestFrequency); }
+double highestMel() { return frequencyToMel (highestFrequency); }
+
 double rowEdgeFrequency (int rowEdge)
 {
-    return lowestFrequency * std::pow (highestFrequency / lowestFrequency, (double) rowEdge / numRows);
+    return melToFrequency (lowestMel() + (highestMel() - lowestMel()) * rowEdge / numRows);
 }
 
 /** The FFT bins a row takes its level from: those whose centre lies in the row's band, or, when the band
-    is narrower than a bin, the bin nearest to the band's centre. Rows above Nyquist have no bins. */
+    is narrower than a bin, the bin nearest to the band's centre. Rows above Nyquist have no bins. A row's
+    level is the mean power of its bins, so wide rows high up are not brightened relative to narrow ones. */
 struct RowBins
 {
     int first = 0;
@@ -114,7 +129,10 @@ std::optional<Spectrogram> analyseSpectrogram (const Source& source, const Spect
             double power = 0.0;
 
             for (int bin = bins.first; bin <= bins.last; ++bin)
-                power = std::max (power, binPowers[(size_t) bin]);
+                power += binPowers[(size_t) bin];
+
+            if (bins.last >= bins.first)
+                power /= bins.last - bins.first + 1;
 
             result.levels[(size_t) frame * numRows + (size_t) row] = powerToDb (power);
         }
@@ -131,7 +149,7 @@ int spectrogramRowForFrequency (double frequency)
     if (frequency <= lowestFrequency)
         return 0;
 
-    const auto position = std::log (frequency / lowestFrequency) / std::log (highestFrequency / lowestFrequency);
+    const auto position = (frequencyToMel (frequency) - lowestMel()) / (highestMel() - lowestMel());
     return juce::jlimit (0, numRows - 1, (int) std::floor (position * numRows));
 }
 } // namespace diffuscore

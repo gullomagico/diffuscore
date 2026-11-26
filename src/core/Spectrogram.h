@@ -14,7 +14,7 @@ namespace spectrogram
 constexpr int fftOrder = 12;
 constexpr int fftSize = 1 << fftOrder; // 4096-point Hann window
 constexpr int hopSize = fftSize / 2;  // Hann windows overlapping by half cover every sample equally
-constexpr int numRows = 512;           // frequency rows, log-spaced from lowestFrequency to highestFrequency
+constexpr int numRows = 512;           // frequency rows, mel-spaced from lowestFrequency to highestFrequency
 constexpr double lowestFrequency = 20.0;
 constexpr double highestFrequency = 20000.0;
 constexpr float floorDb = -100.0f;

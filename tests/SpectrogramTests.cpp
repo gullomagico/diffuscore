@@ -4,6 +4,7 @@
 #include <Spectrogram.h>
 
 #include <algorithm>
+#include <cmath>
 
 using namespace diffuscore;
 using Catch::Matchers::WithinULP; // WithinULP (x, 0) is a bit-exact comparison
@@ -12,6 +13,16 @@ TEST_CASE ("The frequency axis maps 20 Hz and 20 kHz to the first and last rows"
 {
     CHECK (spectrogramRowForFrequency (20.0) == 0);
     CHECK (spectrogramRowForFrequency (20000.0) == spectrogram::numRows - 1);
+}
+
+TEST_CASE ("The frequency axis is mel-spaced", "[spectrogram]")
+{
+    // On the mel scale, 1 kHz is exactly 1000 mel; 20 Hz and 20 kHz are about 31.0 and 3816.8 mel.
+    const auto expected = (int) ((1000.0 - 31.0) / (3816.8 - 31.0) * spectrogram::numRows);
+    CHECK (std::abs (spectrogramRowForFrequency (1000.0) - expected) <= 1);
+
+    // Mel spacing is near-linear low down: 20-700 Hz takes about a fifth of the rows, not half as on a log axis.
+    CHECK (spectrogramRowForFrequency (700.0) < spectrogram::numRows / 4);
 }
 
 namespace
@@ -34,6 +45,28 @@ void writeSine (Source& source, int channel, double frequency, float amplitude)
 
     for (int i = 0; i < source.samples.getNumSamples(); ++i)
         samples[i] = amplitude * (float) std::sin (juce::MathConstants<double>::twoPi * frequency * i / sampleRate);
+}
+
+void writeWhiteNoise (Source& source, int channel, float amplitude)
+{
+    juce::Random random (1234);
+    auto* samples = source.samples.getWritePointer (channel);
+
+    for (int i = 0; i < source.samples.getNumSamples(); ++i)
+        samples[i] = amplitude * (2.0f * random.nextFloat() - 1.0f);
+}
+
+/** The mean power across all columns of the rows from one frequency to another, in dB. */
+double meanLevelDb (const Spectrogram& spectrogram, double lowFrequency, double highFrequency)
+{
+    double power = 0.0;
+    int count = 0;
+
+    for (int row = spectrogramRowForFrequency (lowFrequency); row <= spectrogramRowForFrequency (highFrequency); ++row)
+        for (int column = 0; column < spectrogram.numColumns; ++column, ++count)
+            power += std::pow (10.0, spectrogram.getLevel (column, row) / 10.0);
+
+    return 10.0 * std::log10 (power / count);
 }
 
 int loudestRow (const Spectrogram& spectrogram, int column)
@@ -60,6 +93,20 @@ TEST_CASE ("A 1 kHz sine is loudest in the row containing 1 kHz", "[spectrogram]
 
     for (int column = 0; column < spectrogram->numColumns; ++column)
         CHECK (loudestRow (*spectrogram, column) == spectrogramRowForFrequency (1000.0));
+}
+
+TEST_CASE ("White noise is as bright in wide high rows as in narrow low ones", "[spectrogram]")
+{
+    // A row spanning many bins must not read louder just because it has more bins to choose from.
+    auto source = makeSource (1, 10.0);
+    writeWhiteNoise (source, 0, 0.5f);
+
+    const auto spectrogram = analyseSpectrogram (source);
+    REQUIRE (spectrogram.has_value());
+
+    const auto low = meanLevelDb (*spectrogram, 400.0, 600.0);    // about one bin per row
+    const auto high = meanLevelDb (*spectrogram, 15000.0, 18000.0); // several bins per row
+    CHECK (std::abs (high - low) < 1.0);
 }
 
 TEST_CASE ("Silence is at the bottom of the dB range everywhere", "[spectrogram]")
